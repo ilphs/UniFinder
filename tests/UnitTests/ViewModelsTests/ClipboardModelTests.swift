@@ -1,0 +1,176 @@
+import AppKit
+import XCTest
+@testable import UniFinder
+
+/// `ClipboardModel` (m2-impl.md T3, architect B6, `src/ViewModels/ClipboardModel.swift`) 단위 테스트.
+///
+/// 시스템 전역 클립보드를 오염시키지 않도록, 테스트마다 이름이 다른 전용 `NSPasteboard`를
+/// 주입한다(M1 `loader` 주입 패턴과 동일 원칙).
+@MainActor
+final class ClipboardModelTests: XCTestCase {
+
+    private func freshPasteboard() -> NSPasteboard {
+        NSPasteboard(name: NSPasteboard.Name("UniFinderTest-\(UUID().uuidString)"))
+    }
+
+    private let fileA = URL(fileURLWithPath: "/tmp/clipboardA.txt")
+    private let fileB = URL(fileURLWithPath: "/tmp/clipboardB.txt")
+
+    // MARK: - copy / cut 의미론
+
+    func testCopy_setsItemsAndOperationToCopy() {
+        let model = ClipboardModel(pasteboard: freshPasteboard())
+        model.copy([fileA, fileB])
+
+        XCTAssertEqual(Set(model.items), [fileA, fileB])
+        XCTAssertEqual(model.operation, .copy)
+        XCTAssertTrue(model.cutURLs.isEmpty, "copy는 cut 표시 대상이 아니어야 함")
+    }
+
+    func testCut_setsItemsAndOperationToCut() {
+        let model = ClipboardModel(pasteboard: freshPasteboard())
+        model.cut([fileA])
+
+        XCTAssertEqual(model.items, [fileA])
+        XCTAssertEqual(model.operation, .cut)
+        XCTAssertEqual(model.cutURLs, [fileA], "cut 항목은 50% 불투명 표시 대상(cutURLs)에 포함되어야 함")
+    }
+
+    func testCopy_writesFileURLsToPasteboard() {
+        let pasteboard = freshPasteboard()
+        let model = ClipboardModel(pasteboard: pasteboard)
+        model.copy([fileA])
+
+        let readBack = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL]
+        XCTAssertEqual(readBack, [fileA], "외부 앱(Finder 등)과의 상호운용을 위해 .fileURL로 기록되어야 함")
+    }
+
+    func testCut_alsoWritesToPasteboardAsPlainFileURL() {
+        // 파스트보드에는 cut 의미론이 없다 — cut도 외부에는 copy로 노출된다.
+        let pasteboard = freshPasteboard()
+        let model = ClipboardModel(pasteboard: pasteboard)
+        model.cut([fileA])
+
+        let readBack = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL]
+        XCTAssertEqual(readBack, [fileA])
+    }
+
+    func testCopy_afterCut_replacesItemsAndOperation() {
+        let model = ClipboardModel(pasteboard: freshPasteboard())
+        model.cut([fileA])
+        model.copy([fileB])
+
+        XCTAssertEqual(model.items, [fileB])
+        XCTAssertEqual(model.operation, .copy)
+        XCTAssertTrue(model.cutURLs.isEmpty)
+    }
+
+    func testClear_removesOperationAndItems() {
+        let model = ClipboardModel(pasteboard: freshPasteboard())
+        model.cut([fileA])
+        model.clear()
+
+        XCTAssertTrue(model.items.isEmpty)
+        XCTAssertNil(model.operation)
+        XCTAssertTrue(model.cutURLs.isEmpty)
+    }
+
+    func testRevision_incrementsOnEachStateChange() {
+        let model = ClipboardModel(pasteboard: freshPasteboard())
+        let initial = model.revision
+
+        model.copy([fileA])
+        XCTAssertGreaterThan(model.revision, initial, "클립보드 상태 변경은 revision을 올려야 브릿지가 reloadData를 트리거함(B6)")
+
+        let afterCopy = model.revision
+        model.clear()
+        XCTAssertGreaterThan(model.revision, afterCopy)
+    }
+
+    // MARK: - 붙여넣기 소스/연산 판정
+
+    func testPasteSource_afterCopy_returnsCopyOperation() {
+        let model = ClipboardModel(pasteboard: freshPasteboard())
+        model.copy([fileA])
+
+        let source = model.pasteSource()
+        XCTAssertEqual(source.operation, .copy)
+        XCTAssertEqual(source.items, [fileA])
+    }
+
+    func testPasteSource_afterCut_returnsCutOperation() {
+        let model = ClipboardModel(pasteboard: freshPasteboard())
+        model.cut([fileA])
+
+        let source = model.pasteSource()
+        XCTAssertEqual(source.operation, .cut)
+        XCTAssertEqual(source.items, [fileA])
+    }
+
+    func testCanPaste_emptyPasteboard_isFalse() {
+        let model = ClipboardModel(pasteboard: freshPasteboard())
+        XCTAssertFalse(model.canPaste)
+    }
+
+    func testCanPaste_afterCopy_isTrue() {
+        let model = ClipboardModel(pasteboard: freshPasteboard())
+        model.copy([fileA])
+        XCTAssertTrue(model.canPaste)
+    }
+
+    // MARK: - 외부 변경 감지 (B6 — changeCount 비교)
+
+    func testSyncWithPasteboard_noChange_keepsInternalState() {
+        let pasteboard = freshPasteboard()
+        let model = ClipboardModel(pasteboard: pasteboard)
+        model.cut([fileA])
+
+        let changed = model.syncWithPasteboard()
+
+        XCTAssertFalse(changed, "파스트보드가 바뀌지 않았다면 상태 변경이 없어야 함")
+        XCTAssertEqual(model.operation, .cut, "파스트보드가 바뀌지 않았다면 내부 cut 상태가 유지되어야 함")
+        XCTAssertEqual(model.items, [fileA])
+    }
+
+    func testSyncWithPasteboard_externalWrite_clearsInternalCutState() {
+        let pasteboard = freshPasteboard()
+        let model = ClipboardModel(pasteboard: pasteboard)
+        model.cut([fileA])
+
+        // 외부 앱(Finder 등)이 클립보드를 바꾼 상황을 흉내: changeCount가 증가한다.
+        pasteboard.clearContents()
+        pasteboard.writeObjects([fileB as NSURL])
+
+        let changed = model.syncWithPasteboard()
+
+        XCTAssertTrue(changed)
+        XCTAssertNil(model.operation, "외부에서 변경되면 내부 cut 표시가 해제되어야 함(잘못된 위치의 잘라내기 방지)")
+        XCTAssertTrue(model.items.isEmpty)
+        XCTAssertTrue(model.cutURLs.isEmpty)
+    }
+
+    func testSyncWithPasteboard_ownWrite_doesNotSelfInvalidate() {
+        // model 자신이 만든 변경(copy/cut 호출)은 "외부 변경"으로 오판하면 안 된다.
+        let pasteboard = freshPasteboard()
+        let model = ClipboardModel(pasteboard: pasteboard)
+        model.cut([fileA])
+
+        _ = model.syncWithPasteboard()
+        _ = model.syncWithPasteboard() // 반복 호출해도 자기 자신의 변경으로 해제되면 안 됨
+
+        XCTAssertEqual(model.operation, .cut)
+        XCTAssertFalse(model.ownsPasteboard == false, "자기 자신이 쓴 직후에는 파스트보드 소유권을 유지해야 함")
+    }
+
+    func testOwnsPasteboard_afterExternalWrite_isFalse() {
+        let pasteboard = freshPasteboard()
+        let model = ClipboardModel(pasteboard: pasteboard)
+        model.copy([fileA])
+        XCTAssertTrue(model.ownsPasteboard)
+
+        pasteboard.clearContents()
+        pasteboard.writeObjects([fileB as NSURL])
+
+        XCTAssertFalse(model.ownsPasteboard, "외부에서 파스트보드를 덮어쓰면 소유권을 잃어야 함")
+    }
+}

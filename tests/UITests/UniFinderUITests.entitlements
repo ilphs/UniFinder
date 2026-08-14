@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- XCUITest 러너(XCTRunner.app)는 기본적으로 **샌드박스**로 뜬다. 그러면
+	     러너 안의 테스트 코드가 보는 홈은 `~/Library/Containers/<id>/Data`가 되고
+	     ($TMPDIR도 그 컨테이너 안), 실제 사용자 홈/임시 폴더에 fixture를 만들 수 없다.
+	     게다가 비샌드박스인 앱이 러너 컨테이너를 읽으려 하면 macOS 14+의 "다른 앱 데이터"
+	     TCC 프롬프트에 걸린다.
+	     제품 자체가 비샌드박스이므로(설계 결정 #2) 러너도 같은 조건으로 맞춘다. -->
+	<key>com.apple.security.app-sandbox</key>
+	<false/>
+</dict>
+</plist>
