@@ -65,6 +65,17 @@ canvas.save(dst)
 print(f'    콘텐츠 {cw}x{ch} -> 정사각 {side} -> 아이콘 {ICON} @ 캔버스 {CANVAS} (여백 {off})')
 PY
 
+# --- 팔레트 보정 (UniNotepad 패밀리 룩) -------------------------------------
+# NO_TUNE=1 을 주면 건너뛴다.
+if [ "${NO_TUNE:-0}" = "1" ]; then
+    info "팔레트 보정 건너뜀 (NO_TUNE=1)"
+else
+    info "팔레트 보정 — 배경을 검정으로, 네온을 선명하게"
+    TUNED="resources/icon-1024-tuned.png"
+    python3 scripts/tune-icon-palette.py "$NORMALIZED" "$TUNED" | sed 's/^/  /'
+    mv "$TUNED" "$NORMALIZED"
+fi
+
 info "iconset 생성 (10종)"
 rm -rf "$ICONSET" && mkdir -p "$ICONSET"
 sips -z 16   16   "$NORMALIZED" --out "$ICONSET/icon_16x16.png"      >/dev/null
