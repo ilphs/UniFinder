@@ -49,6 +49,7 @@ targets:
     platform: macOS
     sources:
       - path: src
+      - path: resources/Assets.xcassets
     settings:
       base:
         PRODUCT_NAME: UniFinder
@@ -56,6 +57,10 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         CURRENT_PROJECT_VERSION: "1"
         MARKETING_VERSION: "0.1.0"
+        # 앱 아이콘 — Asset Catalog 방식 (생성: scripts/make-icon.sh)
+        # INFOPLIST_KEY_CFBundleIconFile은 Xcode가 지원하지 않는 키라 Info.plist에
+        # 반영되지 않는다. Asset Catalog + 아래 설정이 CFBundleIconName을 자동 주입한다.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # 설계 결정 #2 — App Sandbox 비활성 (전체 파일시스템 탐색 필요)
         CODE_SIGN_ENTITLEMENTS: src/App/UniFinder.entitlements
         INFOPLIST_KEY_CFBundleDisplayName: UniFinder
