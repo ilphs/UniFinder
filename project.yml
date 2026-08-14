@@ -1,0 +1,128 @@
+name: UniFinder
+
+options:
+  bundleIdPrefix: com.unifinder
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "14.0"
+  groupSortPosition: top
+  generateEmptyDirectories: false
+
+# architect B1 — Xcode 26.6의 기본 Swift 6 언어 모드로 인한 동시성 진단 폭주를 막기 위해
+# Swift 5 언어 모드 + targeted strict concurrency로 고정한다.
+# (Swift 6 전면 전환은 M3 이후 별도 태스크 — 범위 외)
+settings:
+  base:
+    SWIFT_VERSION: "5"
+    SWIFT_STRICT_CONCURRENCY: targeted
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ""
+    ALWAYS_SEARCH_USER_PATHS: NO
+    CLANG_ENABLE_OBJC_ARC: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    SWIFT_EMIT_LOC_STRINGS: YES
+  # 서명/hardened runtime은 **구성별로 갈린다** (M3 리뷰 권고 — 릴리스 경로 정식화).
+  #
+  # - Debug: ad-hoc 서명 + hardened runtime 끔. 개발 중 의도적 선택이다(m3-impl B21 방침 (b)).
+  #   Developer ID 서명을 개발 빌드에 걸면 매 빌드 TCC(전체 디스크 접근) 승인이 초기화돼
+  #   FDA 수동 시나리오를 검증할 수 없다(테스트계획 §4.3 전제).
+  # - Release: Developer ID Application 서명 + hardened runtime + secure timestamp.
+  #   Gatekeeper 통과에는 서명만으로 부족하고 **공증(notarytool) + stapler**가 이어져야 한다 —
+  #   절차는 ref-docs/specs/impl/unifinder-m3-impl.md §릴리스 절차 참조.
+  #
+  # 이 구성은 InfoPlistUsageDescriptionTests와 같은 방식의 회귀 테스트
+  # (tests/UnitTests/AppTests/ReleaseSigningConfigurationTests.swift)가 자동으로 감시한다.
+  # 키 이름·값을 바꾸려면 그 테스트도 함께 갱신할 것.
+  configs:
+    Debug:
+      CODE_SIGN_IDENTITY: "-"
+      ENABLE_HARDENED_RUNTIME: NO
+    Release:
+      CODE_SIGN_IDENTITY: "Developer ID Application"
+      ENABLE_HARDENED_RUNTIME: YES
+      OTHER_CODE_SIGN_FLAGS: "--timestamp"
+
+targets:
+  UniFinder:
+    type: application
+    platform: macOS
+    sources:
+      - path: src
+    settings:
+      base:
+        PRODUCT_NAME: UniFinder
+        PRODUCT_BUNDLE_IDENTIFIER: com.unifinder.app
+        GENERATE_INFOPLIST_FILE: YES
+        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "0.1.0"
+        # 설계 결정 #2 — App Sandbox 비활성 (전체 파일시스템 탐색 필요)
+        CODE_SIGN_ENTITLEMENTS: src/App/UniFinder.entitlements
+        INFOPLIST_KEY_CFBundleDisplayName: UniFinder
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        INFOPLIST_KEY_NSSupportsAutomaticTermination: NO
+        INFOPLIST_KEY_NSSupportsSuddenTermination: NO
+        # TCC 사용 목적 문구 — 즐겨찾기(데스크탑/다운로드/서류)를 트리에 노출하므로 필수.
+        # 문구가 없으면 macOS가 권한 프롬프트 대신 앱을 종료시킨다.
+        INFOPLIST_KEY_NSDesktopFolderUsageDescription: "UniFinder가 데스크탑 폴더의 파일을 탐색하고 표시하기 위해 접근합니다."
+        INFOPLIST_KEY_NSDocumentsFolderUsageDescription: "UniFinder가 서류 폴더의 파일을 탐색하고 표시하기 위해 접근합니다."
+        INFOPLIST_KEY_NSDownloadsFolderUsageDescription: "UniFinder가 다운로드 폴더의 파일을 탐색하고 표시하기 위해 접근합니다."
+        COMBINE_HIDPI_IMAGES: YES
+        # 서명/hardened runtime은 타깃이 아니라 **프로젝트 configs**(위 settings.configs)에서
+        # 구성별로 정한다. 여기에 같은 키를 두면 타깃 설정이 구성별 값을 가려버리므로 두지 않는다.
+
+  UnitTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: tests/UnitTests
+    dependencies:
+      - target: UniFinder
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.unifinder.app.UnitTests
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/UniFinder.app/Contents/MacOS/UniFinder"
+
+  # XCUITest 스모크 1본 전용 타깃 (테스트계획 §4.4).
+  # "앱이 실제로 뜨고 기본 탐색이 되는가"의 최후 안전망 — 단위 테스트는 앱을 한 번도 기동하지 않는다.
+  # UI 자동화는 여기서 늘리지 않는다(테스트계획 원칙 3): 세부 상호작용은 수동 게이트 소관.
+  UniFinderUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: tests/UITests
+    dependencies:
+      - target: UniFinder
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.unifinder.app.UITests
+        TEST_TARGET_NAME: UniFinder
+        # 러너를 비샌드박스로 띄운다 — 이유는 tests/UITests/UniFinderUITests.entitlements 참조.
+        # (샌드박스 러너는 홈이 컨테이너로 바뀌어 fixture를 앱과 공유할 수 없다)
+        CODE_SIGN_ENTITLEMENTS: tests/UITests/UniFinderUITests.entitlements
+
+schemes:
+  UniFinder:
+    build:
+      targets:
+        UniFinder: all
+        UnitTests: [test]
+        UniFinderUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: false
+      targets:
+        - UnitTests
+        - UniFinderUITests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
