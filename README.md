@@ -9,7 +9,7 @@ macOS Finder를 대체하는 **Windows 10 탐색기 스타일 2-pane 파일 탐�
 | **버전** | 0.2.0 |
 | **요구 사항** | macOS 14 (Sonoma) 이상 |
 | **기술 스택** | Swift 5.10+, SwiftUI + AppKit 하이브리드 |
-| **테스트** | 484 unit + 1 UI 스모크 |
+| **테스트** | 535 unit + 1 UI 스모크 |
 
 ---
 
@@ -21,6 +21,7 @@ macOS Finder를 대체하는 **Windows 10 탐색기 스타일 2-pane 파일 탐�
 - 뒤로 / 앞으로 / 상위 폴더, breadcrumb 주소창, 경로 직접 입력
 - 타입-어헤드(파일명 타이핑으로 점프), 컬럼 헤더 클릭 정렬(이름 / 수정일 / 종류 / 크기, 폴더 우선)
 - 숨김 항목 표시 토글
+- **다중 창** — File > New Window(⌘N, 현재 폴더에서 시작), 트리 노드·목록 항목 우클릭 > Open in New Window. 창마다 탐색·트리·히스토리가 독립이고 클립보드·설정은 공유합니다(숨김/정렬 변경은 전 창 즉시 반영). macOS 창 탭(Window > Merge All Windows)도 그대로 쓸 수 있습니다
 
 **파일 조작**
 - 복사 / 잘라내기 / 붙여넣기 — Win10식 잘라내기(⌘X, 대상이 50% 불투명으로 표시)와 Finder식 이동(⌘C → ⌥⌘V) 양쪽 지원
@@ -99,6 +100,7 @@ xcodebuild -scheme UniFinder test
 | [unifinder-m1-impl.md](ref-docs/specs/impl/unifinder-m1-impl.md) | M1 — 읽기 전용 탐색 |
 | [unifinder-m2-impl.md](ref-docs/specs/impl/unifinder-m2-impl.md) | M2 — 파일 조작 |
 | [unifinder-m3-impl.md](ref-docs/specs/impl/unifinder-m3-impl.md) | M3 — 마감(감시·D&D·QuickLook·FDA) 및 릴리스 절차 |
+| [unifinder-multiwindow-impl.md](ref-docs/specs/impl/unifinder-multiwindow-impl.md) | 다중 창 — WindowGroup 전환, 창별/전역 상태 분리, 수용된 트레이드오프 |
 | [unifinder-mvp-test.md](ref-docs/specs/test/unifinder-mvp-test.md) | 테스트 계획 |
 
 ---
@@ -107,8 +109,8 @@ xcodebuild -scheme UniFinder test
 
 ```
 src/
-  App/          AppModel(단일 조정자), AppCommands(메뉴)
-  Views/        SwiftUI 뷰 — 툴바, breadcrumb, 상태바, 시트
+  App/          AppModel(창 1개분 조정자), AppEnvironment(앱 전역 상태), WindowSeed, AppCommands(메뉴)
+  Views/        SwiftUI 뷰 — 창 루트, 툴바, breadcrumb, 상태바, 시트
   Bridges/      AppKit 브릿지 — NSTableView/NSOutlineView, 인라인 편집, 키 라우팅
   ViewModels/   Navigation, Directory, Tree, Clipboard, Progress, FDA
   Services/     디렉터리 열거, 파일 조작, FSEvents 감시, 아이콘, 설정

@@ -173,4 +173,63 @@ final class ClipboardModelTests: XCTestCase {
 
         XCTAssertFalse(model.ownsPasteboard, "외부에서 파스트보드를 덮어쓰면 소유권을 잃어야 함")
     }
+
+    // MARK: - 다중 창 소유권 (다중 창 지원 — 여러 창이 같은 ClipboardModel을 공유할 때)
+
+    /// 조건을 만족할 때까지 메인 액터를 양보하며 기다린다(FullDiskAccessModelTests와 같은 패턴).
+    private func waitUntil(timeout: TimeInterval = 3.0, _ condition: () -> Bool) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
+
+    /// 창 A·창 B가 같은 `ClipboardModel`을 공유하며 각자 다른 `owner`로
+    /// `startObservingPasteboard(owner:)`를 부른 상황을 흉내낸다. 창 하나만 닫혀도
+    /// (그 창의 owner만 해제) 다른 창이 아직 열려 있으므로 관측은 계속 살아 있어야 한다.
+    func testStartObservingTwoOwners_thenStopOne_stillReactsToExternalChange() async {
+        let pasteboard = freshPasteboard()
+        let model = ClipboardModel(pasteboard: pasteboard)
+        model.cut([fileA])
+        let windowA = UUID()
+        let windowB = UUID()
+
+        model.startObservingPasteboard(owner: windowA)
+        model.startObservingPasteboard(owner: windowB)
+        model.stopObservingPasteboard(owner: windowA)
+
+        pasteboard.clearContents()
+        pasteboard.writeObjects([fileB as NSURL])
+        NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        await waitUntil { model.cutURLs.isEmpty }
+
+        XCTAssertTrue(
+            model.cutURLs.isEmpty,
+            "두 창이 관측 중인데 한 창만 닫혔다고 관측이 죽으면 안 된다(다른 창의 외부 변경 감지가 죽는다)"
+        )
+    }
+
+    /// 두 창이 각자 시작했으면 두 창이 각자 해제해야 완전히 멈춘다 — 마지막 창까지 닫힌 뒤에는 반응하지 않아야 한다.
+    func testStartObservingTwoOwners_thenStopBoth_noLongerReactsToExternalChange() async {
+        let pasteboard = freshPasteboard()
+        let model = ClipboardModel(pasteboard: pasteboard)
+        model.cut([fileA])
+        let windowA = UUID()
+        let windowB = UUID()
+
+        model.startObservingPasteboard(owner: windowA)
+        model.startObservingPasteboard(owner: windowB)
+        model.stopObservingPasteboard(owner: windowA)
+        model.stopObservingPasteboard(owner: windowB)
+
+        pasteboard.clearContents()
+        pasteboard.writeObjects([fileB as NSURL])
+        NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        try? await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertEqual(
+            model.cutURLs, [fileA],
+            "시작한 횟수만큼 해제됐다면 관측이 완전히 멈춰야 한다 — 그런데도 반응하면 cut 표시가 이미 닫힌 창 기준으로 계속 흔들린다"
+        )
+    }
 }

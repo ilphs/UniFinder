@@ -77,6 +77,170 @@ final class DirectoryLoaderTests: TempDirectoryTestCase {
         XCTAssertFalse(link.isDirectory)
     }
 
+    // MARK: - 심볼릭 링크 폴더를 열거 대상으로 직접 넘기는 경로 (2026-08-18 회귀)
+
+    /// **재현 시나리오**: 좌측 트리에서 `~/Dropbox`(FileProvider 도메인 마운트를 가리키는 심볼릭
+    /// 링크) 노드를 선택하면 우측 pane이 "Not a Folder"로 떨어졌다. 우측 목록에서 같은 폴더를
+    /// 더블클릭하면 정상이었다 — `AppModel.resolveTarget(of:)`가 링크를 먼저 해석하기 때문.
+    ///
+    /// 원인은 `list(at:)` 한 함수 안에서 두 개의 심볼릭 링크 의미론이 충돌한 것:
+    /// 가드의 `fileExists(atPath:isDirectory:)`는 `stat(2)`라 링크를 **따라가** 통과시키는데,
+    /// 바로 다음 줄의 `contentsOfDirectory(at:)`는 링크를 따라가지 않아 `ENOTDIR`로 실패했다.
+    ///
+    /// 기존 심볼릭 링크 테스트는 링크를 **포함한** 폴더를 열거하는 케이스뿐이라(위 두 테스트)
+    /// 이 버그를 잡지 못했다. 여기서는 링크 URL 자체를 `list(at:)`의 인자로 넘긴다.
+    func testList_symlinkDirectoryURLItself_enumeratesTargetContents() async throws {
+        let targetDir = try Fixture.makeDirectory(in: testRoot, name: "target")
+        try Fixture.makeFile(in: targetDir, name: "inside.txt")
+        try Fixture.makeDirectory(in: targetDir, name: "nested")
+        let link = try Fixture.makeSymlink(in: testRoot, name: "link", destination: targetDir)
+
+        let loader = DirectoryLoader()
+        do {
+            let items = try await loader.list(at: link, showHidden: false)
+            XCTAssertEqual(items.map(\.name).sorted(), ["inside.txt", "nested"])
+        } catch let error as DirectoryError {
+            XCTFail("심볼릭 링크 폴더 열거가 \(error)로 실패함(트리 선택 시 'Not a Folder'의 원인)")
+        }
+    }
+
+    /// **불변식 회귀 방지 — 이 테스트가 핵심이다.**
+    /// 열거 대상만 링크를 해석하고, 자식 URL의 부모 표기는 호출자가 넘긴 링크 경로를 유지해야 한다.
+    /// (`makeItem(parent:)` 주석의 계약 — 트리 `nodeIndex` 키 / `navigation.currentURL` /
+    ///  주소창 표기가 사용자가 고른 경로 하나로 일관되게 남아야 한다)
+    func testList_symlinkDirectoryURLItself_keepsLinkPathInChildURLs() async throws {
+        let targetDir = try Fixture.makeDirectory(in: testRoot, name: "target")
+        try Fixture.makeFile(in: targetDir, name: "inside.txt")
+        try Fixture.makeDirectory(in: targetDir, name: "nested")
+        let link = try Fixture.makeSymlink(in: testRoot, name: "link", destination: targetDir)
+
+        let loader = DirectoryLoader()
+        let items = try await loader.list(at: link, showHidden: false)
+
+        XCTAssertEqual(items.count, 2)
+        for item in items {
+            XCTAssertEqual(
+                item.url.deletingLastPathComponent().path,
+                link.path,
+                "자식 URL이 타겟 경로로 바뀌면 트리 인덱스/주소창 표기가 갈라진다: \(item.url.path)"
+            )
+        }
+    }
+
+    /// 링크가 다시 링크를 가리키는 체인도 끝까지 해석되어야 한다.
+    func testList_symlinkChainToDirectory_enumeratesFinalTargetContents() async throws {
+        let targetDir = try Fixture.makeDirectory(in: testRoot, name: "target")
+        try Fixture.makeFile(in: targetDir, name: "inside.txt")
+        let first = try Fixture.makeSymlink(in: testRoot, name: "link1", destination: targetDir)
+        let second = try Fixture.makeSymlink(in: testRoot, name: "link2", destination: first)
+
+        let loader = DirectoryLoader()
+        let items = try await loader.list(at: second, showHidden: false)
+
+        XCTAssertEqual(items.map(\.name), ["inside.txt"])
+        XCTAssertEqual(items.first?.url.deletingLastPathComponent().path, second.path)
+    }
+
+    func testList_symlinkDirectoryURLItself_appliesHiddenFilter() async throws {
+        let targetDir = try Fixture.makeDirectory(in: testRoot, name: "target")
+        try Fixture.makeFile(in: targetDir, name: "visible.txt")
+        try Fixture.makeFile(in: targetDir, name: ".hidden.txt")
+        let link = try Fixture.makeSymlink(in: testRoot, name: "link", destination: targetDir)
+
+        let loader = DirectoryLoader()
+        let hiddenExcluded = try await loader.list(at: link, showHidden: false)
+        XCTAssertEqual(hiddenExcluded.map(\.name), ["visible.txt"])
+
+        let hiddenIncluded = try await loader.list(at: link, showHidden: true)
+        XCTAssertEqual(hiddenIncluded.map(\.name).sorted(), [".hidden.txt", "visible.txt"])
+    }
+
+    func testListDirectories_symlinkDirectoryURLItself_returnsOnlySubdirectories() async throws {
+        let targetDir = try Fixture.makeDirectory(in: testRoot, name: "target")
+        try Fixture.makeFile(in: targetDir, name: "inside.txt")
+        try Fixture.makeDirectory(in: targetDir, name: "nested")
+        let link = try Fixture.makeSymlink(in: testRoot, name: "link", destination: targetDir)
+
+        let loader = DirectoryLoader()
+        let items = try await loader.listDirectories(at: link, showHidden: false)
+
+        XCTAssertEqual(items.map(\.name), ["nested"])
+    }
+
+    // MARK: - 심볼릭 링크 엣지 케이스 (해석이 실패하는 경우)
+
+    /// 링크를 해석해도 폴더가 아니면 기존 에러 매핑을 그대로 유지해야 한다.
+    func testList_symlinkToFileURLItself_stillThrowsNotADirectory() async throws {
+        let targetFile = try Fixture.makeFile(in: testRoot, name: "target.txt")
+        let link = try Fixture.makeSymlink(in: testRoot, name: "link.txt", destination: targetFile)
+
+        let loader = DirectoryLoader()
+        do {
+            _ = try await loader.list(at: link, showHidden: false)
+            XCTFail("파일을 가리키는 심볼릭 링크 열거가 실패하지 않음")
+        } catch let error as DirectoryError {
+            XCTAssertEqual(error, .notADirectory)
+        }
+    }
+
+    /// 타겟이 없는 깨진 링크: `.notFound`로 떨어지고 행/크래시가 없어야 한다.
+    func testList_brokenSymlink_throwsNotFoundWithoutHanging() async throws {
+        let missingTarget = testRoot.appendingPathComponent("gone", isDirectory: true)
+        let link = try Fixture.makeSymlink(in: testRoot, name: "broken", destination: missingTarget)
+
+        let loader = DirectoryLoader()
+        do {
+            _ = try await loader.list(at: link, showHidden: false)
+            XCTFail("깨진 심볼릭 링크 열거가 실패하지 않음")
+        } catch let error as DirectoryError {
+            XCTAssertEqual(error, .notFound)
+        }
+    }
+
+    /// 서로를 가리키는 순환 링크(ELOOP): 무한 루프 없이 `.notFound`로 떨어져야 한다.
+    func testList_cyclicSymlink_throwsWithoutHanging() async throws {
+        let a = testRoot.appendingPathComponent("cycleA")
+        let b = testRoot.appendingPathComponent("cycleB")
+        try FileManager.default.createSymbolicLink(at: a, withDestinationURL: b)
+        try FileManager.default.createSymbolicLink(at: b, withDestinationURL: a)
+
+        let loader = DirectoryLoader()
+        let expectation = expectation(description: "순환 링크 열거가 유한 시간 내 종료됨")
+        Task {
+            do {
+                _ = try await loader.list(at: a, showHidden: false)
+                XCTFail("순환 심볼릭 링크 열거가 실패하지 않음")
+            } catch let error as DirectoryError {
+                XCTAssertEqual(error, .notFound)
+            } catch {
+                XCTFail("예상치 못한 에러: \(error)")
+            }
+            expectation.fulfill()
+        }
+        await fulfillment(of: [expectation], timeout: 10.0)
+    }
+
+    /// 자기 자신을 가리키는 링크(직접 순환)도 같은 규칙.
+    func testList_selfReferencingSymlink_throwsWithoutHanging() async throws {
+        let selfLink = testRoot.appendingPathComponent("selfLink")
+        try FileManager.default.createSymbolicLink(at: selfLink, withDestinationURL: selfLink)
+
+        let loader = DirectoryLoader()
+        let expectation = expectation(description: "자기 참조 링크 열거가 유한 시간 내 종료됨")
+        Task {
+            do {
+                _ = try await loader.list(at: selfLink, showHidden: false)
+                XCTFail("자기 참조 심볼릭 링크 열거가 실패하지 않음")
+            } catch is DirectoryError {
+                // 기대한 경로 (에러 종류는 커널 응답에 위임)
+            } catch {
+                XCTFail("예상치 못한 에러: \(error)")
+            }
+            expectation.fulfill()
+        }
+        await fulfillment(of: [expectation], timeout: 10.0)
+    }
+
     // MARK: - 권한 에러
 
     func testList_permissionDenied_throwsAccessDenied() async throws {

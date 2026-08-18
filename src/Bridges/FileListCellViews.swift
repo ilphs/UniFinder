@@ -1,5 +1,74 @@
 import AppKit
 
+/// 좌측 사이드바(트리) 전용 치수 (2026-08-18 — 사이드바 확대 요청).
+///
+/// **왜 한곳에 모으는가**: 폰트·아이콘 프레임·심볼 pointSize·행 높이는 서로 맞물려 있어서
+/// 한 값만 키우면 다른 쪽이 잘린다. 특히 행 높이는 `SidebarTreeBridge`가, 셀 내용은
+/// 이 파일이 정하므로 두 파일에 상수를 흩뿌리면 어긋난 채로 조용히 잘리기 쉽다.
+///
+/// **우측 파일 목록은 여기에 포함하지 않는다** — 이번 확대 대상이 아니며, 목록 셀은
+/// 자체 값(13pt / 16pt 아이콘)을 그대로 유지한다.
+enum SidebarMetrics {
+
+    // MARK: 섹션 헤더 (Favorites / Home / Volumes)
+
+    /// 헤더 텍스트. 폴더 행(`nodeFontSize`)보다 **작게** 유지해 그룹 헤더 위계를 지킨다.
+    static let sectionFontSize: CGFloat = 13
+    /// 헤더 심볼 프레임(정사각형).
+    static let sectionSymbolLength: CGFloat = 15
+    /// 심볼 자체의 렌더 크기. 프레임(`sectionSymbolLength`)보다 작게 둬야 여백이 생겨 글자와 톤이 맞는다.
+    static let sectionSymbolPointSize: CGFloat = 13
+    /// 헤더 앞 여백 / 심볼-라벨 간격 / 꼬리 여백.
+    static let sectionLeading: CGFloat = 5
+    static let sectionSpacing: CGFloat = 6
+    static let sectionTrailing: CGFloat = 4
+    /// 행 위아래 여백(각각).
+    ///
+    /// **왜 이렇게 큰가**: 확대 전 사이드바는 `rowSizeStyle = .default`(시스템 소스리스트 기본값)로
+    /// 행 간격이 **32pt**였다(실측). 행 높이를 직접 정하는 순간 그 여백이 사라지므로, 내용만 키우고
+    /// 여백을 기본값으로 두면 글자는 커졌는데 줄 간격은 오히려 좁아져 더 답답해진다.
+    /// 그래서 이전 리듬(32pt)을 그대로 유지하도록 여백을 역산해 둔다.
+    static let sectionVerticalPadding: CGFloat = 8
+
+    // MARK: 폴더 행
+
+    static let nodeFontSize: CGFloat = 15
+    /// 폴더/볼륨 아이콘 프레임(정사각형). `VolumeIconCache`가 만드는 이미지 크기와 **같아야** 한다 —
+    /// 이미지가 더 작으면 `.scaleProportionallyDown`이 확대를 하지 않아 프레임 안에서 작게 뜬다.
+    static let nodeIconLength: CGFloat = 18
+    static let nodeLeading: CGFloat = 2
+    static let nodeSpacing: CGFloat = 6
+    static let nodeTrailing: CGFloat = 4
+    /// 확대 전 실측 행 간격(32pt)을 유지하기 위한 여백 — `sectionVerticalPadding` 주석 참조.
+    static let nodeVerticalPadding: CGFloat = 7
+
+    /// "Loading…" placeholder — 폴더 행과 같은 자리에 뜨므로 한 단계만 작게 둔다.
+    static let placeholderFontSize: CGFloat = 14
+
+    // MARK: 파생 값
+
+    static var sectionFont: NSFont { .systemFont(ofSize: sectionFontSize, weight: .semibold) }
+    static var nodeFont: NSFont { .systemFont(ofSize: nodeFontSize) }
+    static var placeholderFont: NSFont { .systemFont(ofSize: placeholderFontSize) }
+
+    /// 한 줄 텍스트가 잘리지 않는 최소 높이.
+    static func lineHeight(of font: NSFont) -> CGFloat {
+        ceil(font.ascender - font.descender + font.leading)
+    }
+
+    /// 섹션 헤더 행 높이 — 심볼과 텍스트 중 큰 쪽을 담고 위아래 여백을 더한다.
+    static var sectionRowHeight: CGFloat {
+        max(sectionSymbolLength, lineHeight(of: sectionFont)) + sectionVerticalPadding * 2
+    }
+
+    /// 폴더/placeholder 행 높이. `rowSizeStyle = .default`(고정 높이)로는 확대된 내용을 담지 못해
+    /// 위아래가 잘리므로, 브릿지가 `outlineView(_:heightOfRowByItem:)`에서 이 값을 돌려준다.
+    static var nodeRowHeight: CGFloat {
+        max(nodeIconLength, lineHeight(of: nodeFont), lineHeight(of: placeholderFont))
+            + nodeVerticalPadding * 2
+    }
+}
+
 /// 이름 컬럼 셀 — 16pt 아이콘 + 꼬리 말줄임 텍스트 (UI설계 §4.1).
 final class FileNameCellView: NSTableCellView {
 
@@ -182,7 +251,9 @@ final class TreeNodeCellView: NSTableCellView {
         icon.imageScaling = .scaleProportionallyDown
 
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = .systemFont(ofSize: 13)
+        // 인라인 rename은 이 필드를 그대로 편집 모드로 전환하므로(InlineNameEditor) 폰트가 자동으로 따라간다 —
+        // 편집기 쪽에 별도 폰트를 두면 rename 진입 순간 글자 크기가 튄다.
+        label.font = SidebarMetrics.nodeFont
         label.lineBreakMode = .byTruncatingTail
         label.isEditable = false
         label.isSelectable = false
@@ -198,13 +269,13 @@ final class TreeNodeCellView: NSTableCellView {
         textField = label
 
         NSLayoutConstraint.activate([
-            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
+            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: SidebarMetrics.nodeLeading),
             icon.centerYAnchor.constraint(equalTo: centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 16),
-            icon.heightAnchor.constraint(equalToConstant: 16),
+            icon.widthAnchor.constraint(equalToConstant: SidebarMetrics.nodeIconLength),
+            icon.heightAnchor.constraint(equalToConstant: SidebarMetrics.nodeIconLength),
 
-            label.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 5),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            label.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: SidebarMetrics.nodeSpacing),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -SidebarMetrics.nodeTrailing),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
@@ -239,7 +310,10 @@ final class TreeNodeCellView: NSTableCellView {
 ///
 /// 2026-08-18 — 아이콘 슬롯 추가. Win10 탐색기의 사이드바 헤더를 지향하므로
 /// macOS 표준 사이드바(헤더에 아이콘 없음)와 달리 섹션마다 심볼을 하나 둔다.
-/// 아이콘은 라벨과 **같은 계열**(11pt semibold, `secondaryLabelColor`)로 맞춰 톤이 튀지 않게 한다.
+/// 아이콘은 라벨과 **같은 계열**(`SidebarMetrics.sectionSymbolPointSize` semibold,
+/// `secondaryLabelColor`)로 맞춰 톤이 튀지 않게 한다.
+///
+/// 헤더 텍스트는 폴더 행보다 **작게** 유지한다(13pt vs 15pt) — 같거나 크면 그룹 헤더로 읽히지 않는다.
 final class TreeSectionCellView: NSTableCellView {
 
     static let identifier = NSUserInterfaceItemIdentifier("TreeSectionCell")
@@ -264,7 +338,7 @@ final class TreeSectionCellView: NSTableCellView {
 
     private func setup() {
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = .systemFont(ofSize: 11, weight: .semibold)
+        label.font = SidebarMetrics.sectionFont
         label.textColor = .secondaryLabelColor
 
         symbolView.translatesAutoresizingMaskIntoConstraints = false
@@ -278,13 +352,13 @@ final class TreeSectionCellView: NSTableCellView {
         imageView = symbolView
 
         NSLayoutConstraint.activate([
-            symbolView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            symbolView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: SidebarMetrics.sectionLeading),
             symbolView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            symbolView.widthAnchor.constraint(equalToConstant: 13),
-            symbolView.heightAnchor.constraint(equalToConstant: 13),
+            symbolView.widthAnchor.constraint(equalToConstant: SidebarMetrics.sectionSymbolLength),
+            symbolView.heightAnchor.constraint(equalToConstant: SidebarMetrics.sectionSymbolLength),
 
-            label.leadingAnchor.constraint(equalTo: symbolView.trailingAnchor, constant: 5),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            label.leadingAnchor.constraint(equalTo: symbolView.trailingAnchor, constant: SidebarMetrics.sectionSpacing),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -SidebarMetrics.sectionTrailing),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
@@ -301,7 +375,10 @@ final class TreeSectionCellView: NSTableCellView {
             symbolView.image = nil
             return
         }
-        let configuration = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+        let configuration = NSImage.SymbolConfiguration(
+            pointSize: SidebarMetrics.sectionSymbolPointSize,
+            weight: .semibold
+        )
         symbolView.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: title)?
             .withSymbolConfiguration(configuration)
     }
@@ -327,7 +404,8 @@ final class TreePlaceholderCellView: NSTableCellView {
 
     private func setup() {
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = .systemFont(ofSize: 12)
+        // 폴더 행과 같은 자리에 뜨므로 트리 확대에 맞춰 함께 키운다(한 단계 작게 유지 — 보조 문구).
+        label.font = SidebarMetrics.placeholderFont
         label.textColor = .tertiaryLabelColor
         label.stringValue = "Loading…"
 
@@ -335,8 +413,8 @@ final class TreePlaceholderCellView: NSTableCellView {
         textField = label
 
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: SidebarMetrics.nodeLeading),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -SidebarMetrics.nodeTrailing),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }

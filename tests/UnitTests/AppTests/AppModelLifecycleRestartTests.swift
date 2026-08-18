@@ -172,4 +172,69 @@ final class AppModelLifecycleRestartTests: TempDirectoryTestCase {
         )
         XCTAssertNil(panel.delegate, "delegate도 같은 이유로 끊어야 한다(blocker 3)")
     }
+
+    /// **다중 창 회귀 (reviewer Major 1)** — `QLPreviewPanel`은 앱에 하나뿐인 공유 패널이다.
+    ///
+    /// `closeQuickLookPanel()`은 `dismantleNSView`에서 **창이 닫힐 때마다** 불린다. 소유권을 보지 않고
+    /// `orderOut(nil)`을 무조건 부르면, 창 A가 미리보기를 띄운 상태에서 배경 창 B를 닫는 순간
+    /// **A의 미리보기가 함께 사라진다.** 다중 창에서는 배경 창을 닫는 것이 일상 동작이라 상시 발현한다.
+    ///
+    /// (여기서는 패널을 실제로 띄우지 않는다 — 헤드리스 테스트에서 `isVisible`을 만들 수 없다.
+    /// 검증 대상은 "**남의 소유 상태를 건드리지 않는다**"이고, 그것이 `orderOut` 호출 여부와 같은 조건이다.)
+    func testClosingAnotherWindow_doesNotDetachQuickLookPanelOwnedByADifferentList() throws {
+        let defaults = makeDefaults()
+        guard let panel = QLPreviewPanel.shared() else {
+            throw XCTSkip("이 환경에서 QLPreviewPanel 공유 인스턴스를 만들 수 없음")
+        }
+        addTeardownBlock {
+            MainActor.assumeIsolated {
+                panel.dataSource = nil
+                panel.delegate = nil
+            }
+        }
+
+        let owner = makeListCoordinator(defaults: defaults)
+        let other = makeListCoordinator(defaults: defaults)
+
+        // 창 A(owner)가 미리보기를 띄워 패널을 붙들고 있다.
+        panel.dataSource = owner
+        panel.delegate = owner
+
+        // 창 B(other)가 닫힌다.
+        FileListBridge.dismantleNSView(NSScrollView(), coordinator: other)
+
+        XCTAssertTrue(
+            panel.dataSource === owner,
+            "다른 창을 닫았는데 남의 QuickLook 패널 소유권이 끊겼다 — A의 미리보기가 함께 사라진다"
+        )
+        XCTAssertTrue(panel.delegate === owner, "delegate도 마찬가지다")
+
+        // 정작 소유 창이 닫힐 때는 예전과 똑같이 끊어야 한다(blocker 3 방어선 유지).
+        FileListBridge.dismantleNSView(NSScrollView(), coordinator: owner)
+        XCTAssertNil(panel.dataSource, "소유 창이 닫히면 dangling 포인터를 남기지 않는다(blocker 3)")
+        XCTAssertNil(panel.delegate)
+    }
+
+    /// 목록 브릿지 Coordinator 1개 = 창 1개분의 목록.
+    private func makeListCoordinator(defaults: UserDefaults) -> FileListBridge.Coordinator {
+        var selection = Set<URL>()
+        let bridge = FileListBridge(
+            items: [],
+            revision: 1,
+            sortDescriptor: .default,
+            selection: Binding(get: { selection }, set: { selection = $0 }),
+            focusBroker: FocusBroker(),
+            settings: AppSettings(defaults: defaults),
+            onOpen: { _ in },
+            onNavigateUp: {},
+            onSortChange: { _ in },
+            onRefresh: {},
+            onTypeAhead: { _ in }
+        )
+        let coordinator = bridge.makeCoordinator()
+        let tableView = KeyRoutingTableView()
+        coordinator.tableView = tableView
+        tableView.quickLookController = coordinator
+        return coordinator
+    }
 }

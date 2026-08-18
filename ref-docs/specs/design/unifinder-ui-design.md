@@ -50,12 +50,18 @@ updated: 2026-08-13
 
 ## 3. 좌측 트리 상세
 
-- 섹션 헤더: "Favorites", "Home", "Volumes" — 11pt semibold `secondaryLabelColor`, 접기/펼치기 가능
-  - **섹션 아이콘**(2026-08-18 사용자 요청): 즐겨찾기 `star` / 홈 `house` / 볼륨 `internaldrive` (SF Symbols, 13pt).
+- 섹션 헤더: "Favorites", "Home", "Volumes" — 13pt semibold `secondaryLabelColor`, 접기/펼치기 가능
+  - **섹션 아이콘**(2026-08-18 사용자 요청): 즐겨찾기 `star` / 홈 `house` / 볼륨 `internaldrive` (SF Symbols, 13pt / 15pt 프레임).
     macOS 표준 사이드바 헤더에는 아이콘이 없지만 이 앱은 **Win10 탐색기를 지향**하므로 헤더에도 아이콘을 둔다.
     색·굵기는 라벨과 같은 계열(`secondaryLabelColor`, semibold)로 맞춰 헤더가 본문보다 튀지 않게 한다.
   - 아이콘 매핑은 헤더 **문자열이 아니라 `TreeNode.SectionKind`** 기준이다(헤더 문구가 바뀌어도 안전).
-- 행: 폴더 아이콘(16pt) + 이름, 시스템 기본 행 높이·인덴트
+- 행: 폴더 아이콘(18pt) + 이름(15pt), 행 높이 32pt·인덴트 16pt
+  - **사이드바 확대**(2026-08-18 사용자 요청): 헤더 11→13pt / 아이콘 13→15pt 프레임, 폴더 행 13→15pt / 아이콘 16→18pt.
+    헤더는 항목보다 **작게** 유지해 그룹 헤더 위계를 지킨다.
+  - 치수는 `SidebarMetrics`(src/Bridges/FileListCellViews.swift) 한곳에서만 정의하고, 행 높이는
+    `SidebarTreeBridge`가 `outlineView(_:heightOfRowByItem:)`으로 돌려준다(`rowSizeStyle = .custom`).
+    시스템 기본 행 높이(`.default` = 32pt 실측)를 그대로 두면 키운 셀 내용이 잘리고, 반대로 행 높이를
+    기본 여백만큼 확보하지 않으면 글자만 커지고 줄 간격이 좁아져 더 답답해진다 — 확대 전 32pt 리듬을 유지한다.
   - **볼륨 섹션 바로 아래 노드만** 공용 폴더 아이콘 대신 `NSWorkspace.icon(forFile:)`의 실제 디스크 아이콘을 쓴다(2026-08-18).
     디스크 조회 비용이 있으므로 `VolumeIconCache`가 볼륨당 1회만 조회하고, 마운트/언마운트/볼륨 이름 변경으로
     섹션이 다시 만들어질 때(`TreeModel.sectionsRevision`)만 캐시를 버린다.

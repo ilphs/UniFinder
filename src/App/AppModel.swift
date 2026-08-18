@@ -7,6 +7,17 @@ import QuickLookUI
 ///
 /// 사용자 액션 → `NavigationModel.navigate` → `DirectoryModel.load` → `TreeModel.reveal`
 /// 순서를 이 타입이 단일하게 소유해서, 트리·주소창·목록이 항상 같은 경로를 가리키게 한다.
+///
+/// **다중 창 규약 (T3)** — "윈도우 1개분"은 이제 전제가 아니라 **실제 구조**다.
+/// 씬이 `WindowGroup`이라 창마다 이 인스턴스가 하나씩 생기고(`MainWindowRoot`가 만든다),
+/// 탐색·트리·히스토리·선택·진행 중 조작은 **창 안에 갇힌다**.
+///
+/// 창을 넘어 하나여야 하는 것(설정·클립보드·FDA)은 `AppEnvironment`가 소유하고 여기서는
+/// 그 인스턴스를 **빌려 쓴다**. 그래서 `stop()`은 공유 감시자를 무조건 끊지 않고
+/// **자기 창의 소유권만 반납**한다(소유자 집합 — `ClipboardModel`/`FullDiskAccessModel` 참조).
+///
+/// **직렬화 범위**: `runOperation`의 "동시 2건 금지"는 앱 전역이 아니라 **창 단위**다.
+/// 근거는 `ref-docs/specs/impl/unifinder-multiwindow-impl.md` §직렬화 범위.
 @Observable
 @MainActor
 final class AppModel {
@@ -28,6 +39,18 @@ final class AppModel {
         /// 앱 시작 시 최초 로드
         case startup
     }
+
+    /// 이 창의 식별자 (다중 창 T3). 공유 자원의 **소유자 토큰**으로 쓴다 —
+    /// `AppEnvironment.register`/`unregister`, 클립보드·FDA 감시자 소유자 집합이 이 값을 센다.
+    let windowID = UUID()
+
+    /// 앱 전역 상태(설정·클립보드·FDA)와 창 목록의 소유자.
+    ///
+    /// **기본값은 `.shared`가 아니다** — `init(environment:)`에 `nil`을 주면 격리된 새 환경을
+    /// 만든다. 테스트가 `UserDefaults.standard`/`NSPasteboard.general`을 공유하지 않게 하기 위함이며,
+    /// 공유 인스턴스는 `MainWindowRoot`(= 실제 앱 경로)에서만 주입한다.
+    @ObservationIgnored
+    let environment: AppEnvironment
 
     let settings: AppSettings
     let navigation: NavigationModel
@@ -107,6 +130,11 @@ final class AppModel {
     @ObservationIgnored
     private var didStart = false
 
+    /// 트리에 마지막으로 반영한 즐겨찾기 목록 (다중 창 T3 / reviewer m3).
+    /// `syncFavoritesFromSettings()`가 중복 반영을 걸러내는 기준이다.
+    @ObservationIgnored
+    private var appliedFavoritePaths: [String] = []
+
     /// 진행 중인 트리 reveal. 다음 이동이 오면 취소해 스테일한 선택이 뒤늦게 덮어쓰지 않게 한다.
     @ObservationIgnored
     private var revealTask: Task<Void, Never>?
@@ -142,7 +170,16 @@ final class AppModel {
     private var messageTask: Task<Void, Never>?
 
     /// `settings`/`startURL`의 기본값 생성은 MainActor 격리가 필요해 본문에서 만든다.
+    ///
+    /// - Parameter environment: 앱 전역 상태의 소유자. **`nil`이면 격리된 새 환경을 만든다** —
+    ///   기본값을 `AppEnvironment.shared`로 두면 61개 테스트 호출부가 전부 `UserDefaults.standard`와
+    ///   `NSPasteboard.general`을 공유하게 되어 테스트 간 오염이 생긴다(현재 테스트들은
+    ///   `UserDefaults(suiteName:)`와 전용 pasteboard로 격리 중이다). 공유 인스턴스 주입은
+    ///   `MainWindowRoot`가 하는 일이다.
+    ///   `environment`와 개별 인자(`settings`/`clipboard`/`fullDiskAccess`)를 함께 주면
+    ///   **개별 인자가 이긴다**(테스트가 환경 일부만 갈아끼울 수 있도록).
     init(
+        environment: AppEnvironment? = nil,
         settings: AppSettings? = nil,
         loader: any DirectoryListing = DirectoryLoader.shared,
         operations: any FileOperating = FileOperations.shared,
@@ -152,13 +189,21 @@ final class AppModel {
         operationProgress: OperationProgressModel? = nil,
         startURL: URL? = nil
     ) {
-        let settings = settings ?? AppSettings()
+        // 환경이 없으면 **이 인스턴스 전용** 환경을 만든다(위 주석 — `.shared` 오염 금지).
+        // 개별 인자가 주어졌으면 그것을 환경 구성에 그대로 싣는다.
+        let environment = environment ?? AppEnvironment(
+            settings: settings,
+            clipboard: clipboard,
+            fullDiskAccess: fullDiskAccess
+        )
+        let settings = settings ?? environment.settings
         let startURL = startURL ?? FileManager.default.homeDirectoryForCurrentUser
         let start = NavigationModel.normalize(startURL)
+        self.environment = environment
         self.settings = settings
         self.operations = operations
-        self.clipboard = clipboard ?? ClipboardModel()
-        self.fullDiskAccess = fullDiskAccess ?? FullDiskAccessModel()
+        self.clipboard = clipboard ?? environment.clipboard
+        self.fullDiskAccess = fullDiskAccess ?? environment.fullDiskAccess
         self.directoryWatcher = directoryWatcher ?? DirectoryWatcher()
         self.operationProgress = operationProgress ?? OperationProgressModel()
         self.navigation = NavigationModel(startURL: start)
@@ -168,6 +213,8 @@ final class AppModel {
             showHidden: settings.showHidden
         )
         self.tree = TreeModel(loader: loader, showHidden: settings.showHidden, settings: settings)
+        // `TreeModel`이 이미 이 목록으로 섹션을 만든 상태다 — 첫 `.onChange`가 헛돌지 않게 맞춰 둔다.
+        self.appliedFavoritePaths = settings.favoritePaths
 
         focusBroker.beginAddressEditing = { [weak self] in
             self?.isAddressEditing = true
@@ -188,15 +235,21 @@ final class AppModel {
         }
     }
 
-    /// 앱 시작 시 1회 — 첫 폴더 로드 + 트리 동기화 + 볼륨/클립보드 감시 시작.
+    /// 창이 열릴 때 1회 — 첫 폴더 로드 + 트리 동기화 + 볼륨/클립보드 감시 시작.
+    ///
+    /// **공유 자원 등록은 `guard !didStart` 안쪽에서만 한다**(권장 7): SwiftUI가 뷰 아이덴티티
+    /// 변화로 `onAppear`를 추가로 부를 수 있는데, 그때마다 등록이 늘면 소유자 집합이 아니라
+    /// 카운트였다면 그대로 누수가 된다. 집합 + 이 가드가 이중 안전망이다.
     func start() {
         guard !didStart else { return }
         didStart = true
+        environment.register(windowID)
         tree.startObservingVolumes()
         // architect B6 — 상시 폴링 대신 앱 재활성화 시점에만 changeCount를 비교한다.
-        clipboard.startObservingPasteboard()
+        // 다중 창 T1 — 공유 인스턴스라 소유자를 실어 보낸다(첫 창에서만 실제 등록).
+        clipboard.startObservingPasteboard(owner: windowID)
         // M3 T5 — FDA 감지 + 필요 시 웰컴 시트 (재감지도 didBecomeActive 시점을 공유한다).
-        fullDiskAccess.start()
+        fullDiskAccess.start(owner: windowID)
         loadCurrent(source: .startup)
     }
 
@@ -204,14 +257,21 @@ final class AppModel {
     ///
     /// M1 백로그였던 `stopObservingVolumes` 미호출 건을 여기서 정리한다 (m3-impl T1) —
     /// M3에서 감시자가 3종(볼륨·클립보드·FDA)에 FSEvents까지 늘어나 해제 경로가 반드시 필요하다.
+    /// **다중 창 T3**: 클립보드·FDA는 앱 전역 공유 인스턴스라 이 창의 소유권만 반납한다 —
+    /// 마지막 창이 반납할 때만 실제로 감시가 풀린다. FSEvents·볼륨 감시는 창 소유라 그대로 끊는다.
     func stop() {
         guard didStart else { return }
         didStart = false
+        environment.unregister(windowID)
         directoryWatcher.stop()
         tree.stopObservingVolumes()
-        clipboard.stopObservingPasteboard()
-        fullDiskAccess.stopObservingActivation()
-        Self.closeQuickLookPanelIfOpen()
+        clipboard.stopObservingPasteboard(owner: windowID)
+        fullDiskAccess.stopObservingActivation(owner: windowID)
+        // QuickLook 패널은 **앱에 하나뿐인 공유 패널**이다. 배경 창 하나를 닫았다고 무조건 닫으면
+        // 다른 창이 띄운 미리보기가 함께 사라진다 — 마지막 창이 닫힐 때만 정리한다.
+        if !environment.hasOpenWindows {
+            Self.closeQuickLookPanelIfOpen()
+        }
     }
 
     /// 창이 닫힐 때 남아 있는 QuickLook 패널을 닫는 **방어선** (M3 리뷰 blocker 3).
@@ -426,7 +486,10 @@ final class AppModel {
     }
 
     /// 심볼릭 링크 폴더는 타겟으로 이동한다 (설계서 §6).
-    private static func resolveTarget(of item: FileItem) -> URL {
+    ///
+    /// "Open in New Window"(다중 창 T7)도 **같은 규칙**으로 대상을 해석해야 한다 —
+    /// 같은 항목을 여는데 진입점에 따라 링크와 타겟으로 갈리면 안 된다.
+    static func resolveTarget(of item: FileItem) -> URL {
         guard item.isSymlink else { return item.url }
         return item.url.resolvingSymlinksInPath()
     }
@@ -451,6 +514,48 @@ final class AppModel {
         tree.showHidden = newValue
         tree.rebuildSections()
         startReveal(navigation.currentURL)
+    }
+
+    // MARK: - 공유 설정 → 창 상태 동기화 (다중 창 T3)
+
+    /// `AppSettings`는 앱 전역 1개인데 `DirectoryModel`/`TreeModel`은 **창마다** 자기 사본을 든다.
+    /// 그래서 창 A의 설정 변경이 창 B의 화면까지 닿게 하려면 명시적 동기화가 필요하다
+    /// (사용자 결정: 숨김/정렬은 **즉시 전 창 동기화**). `MainWindow`의 `.onChange`가 부른다.
+    ///
+    /// **설정에 되쓰면 안 된다** — `directory.setShowHidden`이 `settings.showHidden`을 다시
+    /// 건드리면 `.onChange`가 다시 돌아 창들 사이에서 무한 왕복이 된다. 여기서는 **설정 → 창**
+    /// 한 방향만 흐르고, 반대 방향은 `toggleHiddenItems`/`toggleSort`/`applySort`가 담당한다.
+    func syncShowHiddenFromSettings() {
+        let newValue = settings.showHidden
+        guard directory.showHidden != newValue || tree.showHidden != newValue else { return }
+        directory.setShowHidden(newValue)
+        tree.showHidden = newValue
+        tree.rebuildSections()
+        startReveal(navigation.currentURL)
+    }
+
+    func syncSortFromSettings() {
+        let descriptor = settings.sortDescriptor
+        guard directory.sortDescriptor != descriptor else { return }
+        directory.applySort(descriptor)
+    }
+
+    /// 즐겨찾기는 트리 섹션 구성 자체를 바꾼다.
+    ///
+    /// **스냅샷 가드가 필요한 이유** (reviewer m3): 즐겨찾기를 토글한 창은 `addFavorite`/`removeFavorite`
+    /// 안에서 이미 반영을 마쳤는데, 그 직후 `.onChange(of: settings.favoritePaths)`가 같은 창에도
+    /// 도착해 한 번 더 돈다. `startReveal`은 진행 중이던 `revealTask`를 취소하므로 방금 시작한
+    /// reveal이 즉시 취소·재시작되고, 창이 N개면 N+1회 돈다. 마지막으로 반영한 목록과 같으면 건너뛴다.
+    func syncFavoritesFromSettings() {
+        guard appliedFavoritePaths != settings.favoritePaths else { return }
+        applyFavoriteSections()
+    }
+
+    /// 이 창이 FDA 온보딩 시트를 띄울 소유 창인지 (다중 창 T4/필수4).
+    /// `FullDiskAccessModel.isOnboardingPresented`는 공유 `Bool` 하나라, 게이팅이 없으면
+    /// 열려 있는 모든 창이 같은 시트를 동시에 띄운다.
+    var isOnboardingPresenter: Bool {
+        environment.isOnboardingPresenter(windowID)
     }
 
     // MARK: - 즐겨찾기 (2026-08-18 사용자 요청)
@@ -481,8 +586,7 @@ final class AppModel {
     /// 즐겨찾기 등록. 이미 있으면 아무 것도 하지 않는다(중복 등록 거부는 `AppSettings`가 판정).
     func addFavorite(_ url: URL) {
         guard settings.addFavorite(url) else { return }
-        tree.rebuildSections()
-        startReveal(navigation.currentURL)
+        applyFavoriteSections()
     }
 
     /// 즐겨찾기 해제.
@@ -491,6 +595,13 @@ final class AppModel {
     /// 막는 것은 rename/삭제이고, 이 액션은 목록에서만 빼는 별개 개념이라 그 가드와 무관하다.
     func removeFavorite(_ url: URL) {
         guard settings.removeFavorite(url) else { return }
+        applyFavoriteSections()
+    }
+
+    /// 즐겨찾기 목록을 트리에 반영하는 **단일 지점**. 반영한 스냅샷을 기록해 두 경로
+    /// (조작한 창의 직접 호출 · 전 창의 `.onChange` 동기화)가 같은 변경을 두 번 처리하지 않게 한다.
+    private func applyFavoriteSections() {
+        appliedFavoritePaths = settings.favoritePaths
         tree.rebuildSections()
         startReveal(navigation.currentURL)
     }

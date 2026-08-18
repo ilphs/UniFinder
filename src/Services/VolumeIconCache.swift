@@ -22,7 +22,7 @@ final class VolumeIconCache {
     typealias Lookup = @Sendable (String) -> NSImage?
 
     /// 기본 조회. **반드시 사본을 돌려준다** — `NSWorkspace`가 주는 공유 인스턴스를 그대로
-    /// `size` 변형하면 AppKit의 다른 소비자에게도 16x16이 새어 나간다(`IconProvider`와 같은 규칙).
+    /// `size` 변형하면 AppKit의 다른 소비자에게도 사이드바 크기가 새어 나간다(`IconProvider`와 같은 규칙).
     nonisolated static let defaultLookup: Lookup = { path in
         NSWorkspace.shared.icon(forFile: path).copy() as? NSImage
     }
@@ -47,7 +47,9 @@ final class VolumeIconCache {
 
         lookupCount += 1
         guard let image = lookup(PathKey.exactPath(url)) else { return nil }
-        image.size = NSSize(width: 16, height: 16)
+        // 이 캐시의 유일한 소비자는 사이드바 트리 셀이다 — 셀 아이콘 프레임과 크기를 묶어 둔다.
+        // 프레임보다 작으면 `.scaleProportionallyDown`이 확대하지 않아 볼륨만 작게 뜬다.
+        image.size = NSSize(width: SidebarMetrics.nodeIconLength, height: SidebarMetrics.nodeIconLength)
         cache[key] = image
         return image
     }

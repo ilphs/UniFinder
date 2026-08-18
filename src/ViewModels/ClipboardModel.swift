@@ -49,6 +49,20 @@ final class ClipboardModel {
     @ObservationIgnored
     private var activationObserver: NSObjectProtocol?
 
+    /// 감시를 요청한 **창들**의 식별자 (다중 창 T1).
+    ///
+    /// `ClipboardModel`은 `AppEnvironment`가 소유하는 **앱 전역 인스턴스**라 창 N개가 같은
+    /// 인스턴스에 `start`/`stop`을 건다. 참조 카운트(`Int`)로 세면 SwiftUI가 뷰 아이덴티티
+    /// 변화 시 `onAppear`/`onDisappear`를 추가로 호출할 때 값이 음수로 드리프트하거나 누수된다.
+    /// **집합**이면 같은 창이 몇 번을 더 불러도 멱등이다.
+    @ObservationIgnored
+    private var observingOwners: Set<UUID> = []
+
+    /// 소유자를 지정하지 않은 호출(단일 소유자·테스트)이 공유하는 고정 토큰.
+    /// 인자 없는 `startObservingPasteboard()`/`stopObservingPasteboard()`의 기존 의미론
+    /// (= 한 번 걸고 한 번 푼다)을 그대로 유지한다.
+    static let defaultOwnerID = UUID()
+
     init(pasteboard: NSPasteboard = .general) {
         self.pasteboard = pasteboard
     }
@@ -140,7 +154,13 @@ final class ClipboardModel {
     // MARK: - 외부 변경 감지 (architect B6)
 
     /// 앱 재활성화 시점마다 파스트보드 소유권을 재확인한다 (상시 폴링 금지).
-    func startObservingPasteboard() {
+    ///
+    /// - Parameter owner: 감시를 요청한 창 식별자. **빈 집합 → 첫 소유자** 전이에서만 실제로
+    ///   관측자를 등록한다(다중 창 T1). 인자를 생략하면 `defaultOwnerID`를 쓴다.
+    func startObservingPasteboard(owner: UUID = ClipboardModel.defaultOwnerID) {
+        let wasEmpty = observingOwners.isEmpty
+        observingOwners.insert(owner)
+        guard wasEmpty else { return }
         guard activationObserver == nil else { return }
         activationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
@@ -153,7 +173,11 @@ final class ClipboardModel {
         }
     }
 
-    func stopObservingPasteboard() {
+    /// - Parameter owner: 감시를 놓는 창 식별자. **마지막 소유자가 빠질 때만** 실제로 해제한다 —
+    ///   창 2개 중 하나를 닫았다고 살아 있는 창의 파스트보드 감시까지 끊으면 안 된다(다중 창 T1).
+    func stopObservingPasteboard(owner: UUID = ClipboardModel.defaultOwnerID) {
+        observingOwners.remove(owner)
+        guard observingOwners.isEmpty else { return }
         if let activationObserver {
             NotificationCenter.default.removeObserver(activationObserver)
         }

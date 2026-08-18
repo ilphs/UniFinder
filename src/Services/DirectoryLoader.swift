@@ -53,7 +53,7 @@ actor DirectoryLoader: DirectoryListing {
         let contents: [URL]
         do {
             contents = try fileManager.contentsOfDirectory(
-                at: url,
+                at: Self.enumerationURL(for: url),
                 includingPropertiesForKeys: keys,
                 options: options
             )
@@ -83,6 +83,35 @@ actor DirectoryLoader: DirectoryListing {
     /// 하위 폴더만 필요한 좌측 트리용 경로(T4). 열거 자체는 `list`와 동일하다.
     func listDirectories(at url: URL, showHidden: Bool) async throws -> [FileItem] {
         try await list(at: url, showHidden: showHidden).filter(\.isDirectory)
+    }
+
+    // MARK: - 열거 대상 해석
+
+    /// 실제 열거에 사용할 URL. **자식 URL을 만드는 부모 표기(`makeItem(parent:)`)와는 별개다.**
+    ///
+    /// 위 가드의 `fileExists(atPath:isDirectory:)`는 `stat(2)` 의미론이라 심볼릭 링크를 **따라가지만**,
+    /// `contentsOfDirectory(at:)`(URL 버전)는 링크를 따라가지 않아 링크 자체를 `ENOTDIR`로 거절한다
+    /// (`~/Dropbox` 같은 FileProvider 도메인 마운트 링크가 대표 사례 — 트리에서 선택하면
+    /// `.notADirectory`("Not a Folder")로 떨어졌다). 두 의미론이 어긋나면 "폴더 맞다"고 통과시킨
+    /// 가드 바로 다음 줄에서 "폴더가 아니다"로 실패하는 모순이 생긴다.
+    ///
+    /// 그래서 **열거 대상만** 링크를 해석하고, 자식 URL의 부모 표기는 호출자가 준 원본 URL을
+    /// 그대로 유지한다. 트리 `nodeIndex` 키 / `navigation.currentURL` / 주소창이 사용자가 고른
+    /// 경로 표기(`/Users/x/Dropbox`)로 일관되게 남아야 하기 때문
+    /// (`TreeModel.canonicalDirectoryURL`이 링크를 해석하지 않는 설계 의도와 같은 규칙).
+    private static func enumerationURL(for url: URL) -> URL {
+        let resolved = url.resolvingSymlinksInPath()
+        guard resolved.path != url.path else { return url }
+
+        // 깨진 링크·순환 링크 방어: `resolvingSymlinksInPath()`는 해석에 실패하면 원래 경로를
+        // 그대로 돌려주거나 존재하지 않는 경로를 만들어낼 수 있다. 해석 결과가 실제 폴더일 때만
+        // 채택하고, 아니면 원본으로 되돌려 기존 에러 매핑(`.notFound`/`.notADirectory`)을 살린다.
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: resolved.path, isDirectory: &isDirectory),
+              isDirectory.boolValue
+        else { return url }
+
+        return resolved
     }
 
     // MARK: - 항목 생성

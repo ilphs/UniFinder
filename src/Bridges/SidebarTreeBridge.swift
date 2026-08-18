@@ -68,6 +68,9 @@ struct SidebarTreeBridge: NSViewRepresentable {
     var isFavorite: (URL) -> Bool = { _ in false }
     var onToggleFavorite: (URL) -> Void = { _ in }
 
+    /// "Open in New Window" (다중 창 T7). 트리 노드는 전부 폴더라 대상 판정이 필요 없다.
+    var onOpenInNewWindow: (URL) -> Void = { _ in }
+
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
@@ -76,9 +79,13 @@ struct SidebarTreeBridge: NSViewRepresentable {
         let outlineView = KeyRoutingOutlineView()
         outlineView.style = .sourceList
         outlineView.headerView = nil
-        outlineView.rowSizeStyle = .default
+        // 2026-08-18 사이드바 확대 — `.default`는 시스템이 정한 **고정** 행 높이라 키운 셀 내용이
+        // 위아래로 잘린다. `.custom`으로 두어야 아래 `heightOfRowByItem` 델리게이트가 반영된다
+        // (`.custom` 이외의 값에서는 AppKit이 델리게이트 높이를 무시한다).
+        outlineView.rowSizeStyle = .custom
         outlineView.floatsGroupRows = false
-        outlineView.indentationPerLevel = 14
+        // 아이콘이 16 → 18로 커진 만큼 계층 들여쓰기도 함께 넓혀 깊이 감각을 유지한다.
+        outlineView.indentationPerLevel = 16
         outlineView.autosaveExpandedItems = false
         outlineView.allowsMultipleSelection = false
         outlineView.allowsEmptySelection = true
@@ -194,7 +201,9 @@ struct SidebarTreeBridge: NSViewRepresentable {
             // NSWorkspace가 돌려주는 공유 인스턴스를 직접 변형하지 않도록 사본을 만든다.
             let source = NSWorkspace.shared.icon(for: .folder)
             let image = (source.copy() as? NSImage) ?? source
-            image.size = NSSize(width: 16, height: 16)
+            // 셀 아이콘 프레임과 **같은** 크기여야 한다 — 더 작으면 `.scaleProportionallyDown`이
+            // 확대를 하지 않아 커진 프레임 안에서 아이콘만 작게 남는다.
+            image.size = NSSize(width: SidebarMetrics.nodeIconLength, height: SidebarMetrics.nodeIconLength)
             return image
         }()
 
@@ -258,6 +267,21 @@ struct SidebarTreeBridge: NSViewRepresentable {
 
         func outlineView(_ outlineView: NSOutlineView, isGroupItem item: Any) -> Bool {
             (item as? TreeNode)?.kind == .section
+        }
+
+        /// 행 높이 (2026-08-18 사이드바 확대).
+        ///
+        /// 섹션 헤더와 폴더 행은 폰트·아이콘 크기가 달라 필요한 높이도 다르다. 값 자체는
+        /// 셀 레이아웃과 어긋나지 않도록 `SidebarMetrics`가 단독으로 소유하고 여기서는 분기만 한다.
+        func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
+            rowHeight(for: item)
+        }
+
+        /// 테스트가 델리게이트 경유 없이 직접 검증할 수 있게 분리해 둔다.
+        func rowHeight(for item: Any) -> CGFloat {
+            guard let node = item as? TreeNode else { return SidebarMetrics.nodeRowHeight }
+            // placeholder("Loading…")는 폴더 행 자리에 뜨므로 폴더 행과 같은 높이를 쓴다.
+            return node.kind == .section ? SidebarMetrics.sectionRowHeight : SidebarMetrics.nodeRowHeight
         }
 
         func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
@@ -514,6 +538,9 @@ struct SidebarTreeBridge: NSViewRepresentable {
             let menu = NSMenu()
             menu.autoenablesItems = false
             menu.addItem(makeItem("Open", #selector(menuOpen), key: "", modifiers: []))
+            // 다중 창 T7 — Finder/Win10 탐색기와 같은 자리(Open 바로 아래).
+            // 대상은 `contextNode` 스냅샷이라 메뉴가 떠 있는 사이 선택이 바뀌어도 흔들리지 않는다.
+            menu.addItem(makeItem("Open in New Window", #selector(menuOpenInNewWindow), key: "", modifiers: []))
             menu.addItem(.separator())
             menu.addItem(makeItem("Copy", #selector(menuCopy), key: "c", modifiers: .command))
             menu.addItem(makeItem("Paste", #selector(menuPaste), key: "v", modifiers: .command, enabled: parent.canPaste))
@@ -554,6 +581,11 @@ struct SidebarTreeBridge: NSViewRepresentable {
         @objc private func menuOpen() {
             guard let node = contextNode else { return }
             parent.onSelect(node.url)
+        }
+
+        @objc private func menuOpenInNewWindow() {
+            guard let node = contextNode else { return }
+            parent.onOpenInNewWindow(node.url)
         }
 
         @objc private func menuCopy() {

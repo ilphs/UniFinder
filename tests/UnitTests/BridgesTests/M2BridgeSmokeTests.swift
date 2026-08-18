@@ -388,7 +388,8 @@ final class M2BridgeSmokeTests: XCTestCase {
 
         XCTAssertEqual(
             titles,
-            ["Open", "Copy", "Cut", "Rename", "Move to Trash", "Show in Finder", "Add to Favorites"]
+            // 다중 창 T7 — "Open in New Window"가 "Open" 바로 아래에 추가됐다(OpenInNewWindowMenuTests 참조).
+            ["Open", "Open in New Window", "Copy", "Cut", "Rename", "Move to Trash", "Show in Finder", "Add to Favorites"]
         )
 
         let rename = menu.items.first { $0.title == "Rename" }

@@ -95,8 +95,15 @@ extension View {
     /// FDA 온보딩 시트 + 제한 모드 배너를 한 번에 붙인다.
     ///
     /// 기존 뷰 계층 수정을 1줄로 제한하기 위한 진입점이다(다른 태스크와의 파일 충돌 회피).
-    func fullDiskAccessOnboarding(_ model: FullDiskAccessModel) -> some View {
-        modifier(FullDiskAccessOnboardingModifier(model: model))
+    ///
+    /// - Parameter isPresenter: 이 창이 **시트를 띄울 소유 창**인지 (다중 창 T4).
+    ///   `FullDiskAccessModel`은 앱 전역 공유 인스턴스라 `isOnboardingPresented`가 `Bool` 하나다.
+    ///   이 모디파이어는 창마다 붙으므로 게이팅이 없으면 열린 창 전부가 같은 시트를 동시에 띄운다.
+    ///   **배너는 시트와 다른 규칙을 쓴다** — 제한 모드는 모든 창에 해당하는 사실이므로 전 창에 띄우고,
+    ///   중복 노출을 피하려고 숨기는 것은 **실제로 시트에 가려지는 소유 창뿐**이다
+    ///   (`FullDiskAccessModel.shouldShowBanner(isPresenter:)`).
+    func fullDiskAccessOnboarding(_ model: FullDiskAccessModel, isPresenter: Bool = true) -> some View {
+        modifier(FullDiskAccessOnboardingModifier(model: model, isPresenter: isPresenter))
     }
 }
 
@@ -104,17 +111,35 @@ private struct FullDiskAccessOnboardingModifier: ViewModifier {
 
     @Bindable var model: FullDiskAccessModel
 
+    /// 이 창이 시트 표시 소유 창인지. 소유 창이 닫히면 `AppEnvironment`가 다음 창에 승계하고,
+    /// 승계받은 창은 이 값이 `true`로 바뀌면서 시트를 이어받는다.
+    let isPresenter: Bool
+
+    /// 소유 창이 아니면 **읽기는 항상 `false`, 쓰기는 무시**한다.
+    /// `.constant(false)`를 쓰지 않는 이유: 소유권이 승계되는 순간 같은 뷰가 그대로
+    /// 실제 바인딩으로 전환돼야 하고, 닫기(Esc/[나중에])가 공유 상태에 반영돼야 하기 때문이다.
+    private var presentation: Binding<Bool> {
+        Binding(
+            get: { isPresenter && model.isOnboardingPresented },
+            set: { newValue in
+                guard isPresenter else { return }
+                model.isOnboardingPresented = newValue
+            }
+        )
+    }
+
     func body(content: Content) -> some View {
         content
             .safeAreaInset(edge: .top, spacing: 0) {
-                if model.shouldShowBanner {
+                // 소유 창이 아니면 시트를 못 보므로 배너까지 숨기면 제한 모드를 알 길이 없다(reviewer Major 2).
+                if model.shouldShowBanner(isPresenter: isPresenter) {
                     VStack(spacing: 0) {
                         FullDiskAccessBanner(model: model)
                         Divider()
                     }
                 }
             }
-            .sheet(isPresented: $model.isOnboardingPresented) {
+            .sheet(isPresented: presentation) {
                 OnboardingSheet(model: model)
             }
     }

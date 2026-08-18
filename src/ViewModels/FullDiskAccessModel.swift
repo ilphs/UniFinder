@@ -55,6 +55,18 @@ final class FullDiskAccessModel {
     @ObservationIgnored
     private var activationObserver: NSObjectProtocol?
 
+    /// 감시를 요청한 **창들**의 식별자 (다중 창 T1 — `ClipboardModel`과 같은 규약).
+    ///
+    /// 이 모델은 `AppEnvironment`가 소유하는 앱 전역 인스턴스라 창 N개가 같은 인스턴스에
+    /// `start`/`stopObservingActivation`을 건다. 참조 카운트(`Int`) 대신 **집합**을 쓰는 이유는
+    /// SwiftUI가 뷰 아이덴티티 변화 시 `onAppear`/`onDisappear`를 추가로 호출할 수 있어
+    /// 카운트가 드리프트(음수/누수)하기 때문이다 — 집합은 중복 호출에 멱등이다.
+    @ObservationIgnored
+    private var observingOwners: Set<UUID> = []
+
+    /// 소유자를 지정하지 않은 호출(단일 소유자·테스트)이 공유하는 고정 토큰.
+    static let defaultOwnerID = UUID()
+
     /// 진행 중인 활성화 재감지 작업 (테스트가 완료를 기다리는 지점).
     /// 프로브는 파일 IO라서 메인 액터 밖에서 돌린다 — 아래 `refreshInBackground` 참조.
     @ObservationIgnored
@@ -83,13 +95,25 @@ final class FullDiskAccessModel {
     /// - `.denied`: 시트를 닫은 뒤에도 제한 모드임을 계속 알린다
     /// - `.undetermined`: 시트는 절대 띄우지 않고 배너만
     /// - `.granted`: 아무것도 띄우지 않는다
-    var shouldShowBanner: Bool {
-        guard !isOnboardingPresented else { return false }
+    ///
+    /// **다중 창 (reviewer Major 2)**: 이 판정은 **창별**이다. `isOnboardingPresented`는 앱 전역
+    /// 공유 인스턴스의 `Bool` 하나인데, 시트는 소유 창 하나에만 뜬다(`AppEnvironment.onboardingPresenterID`).
+    /// 그래서 "시트가 떠 있으니 배너를 숨긴다"는 규칙을 전 창에 적용하면 **시트를 보지도 못한 창들이
+    /// 배너까지 잃어** 제한 모드라는 사실 자체를 알 수 없게 된다. 숨기는 것은 **실제로 시트에 가려지는
+    /// 소유 창뿐**이다.
+    ///
+    /// - Parameter isPresenter: 이 창이 시트 소유 창인지.
+    func shouldShowBanner(isPresenter: Bool) -> Bool {
+        // 시트에 가려지는 창에서만 중복 노출을 피한다.
+        if isPresenter, isOnboardingPresented { return false }
         switch status {
         case .granted: return false
         case .denied, .undetermined: return true
         }
     }
+
+    /// 소유 창 기준(= 단일 창 시절과 같은) 판정. 창이 하나뿐인 문맥과 단위 테스트가 쓴다.
+    var shouldShowBanner: Bool { shouldShowBanner(isPresenter: true) }
 
     var bannerMessage: String {
         switch status {
@@ -115,7 +139,16 @@ final class FullDiskAccessModel {
     /// 내리지 않는 순간 재시작이 **영구히** 죽는다 — 창을 닫았다가 Dock에서 다시 열면
     /// `didBecomeActive` 재감지가 살아나지 않아 T5 수용 기준("설정에서 허용 → 복귀 시 자동 감지·
     /// 시트 닫힘")이 그 시점부터 성립하지 않았다.
-    func start() {
+    ///
+    /// **다중 창 T1**: 창 N개가 같은 인스턴스에 걸므로 **빈 집합 → 첫 소유자** 전이에서만
+    /// 관측자 등록과 최초 프로브(`refresh(presentIfNeeded: true)`)를 수행한다. 두 번째 창이
+    /// 열릴 때 최초 프로브를 다시 돌리면 [나중에]로 보류하지 않은 사용자에게 시트가 또 뜬다.
+    /// 아래 `guard activationObserver == nil`은 기존 방어선을 그대로 남긴 것이다.
+    /// - Parameter owner: 창 식별자. 생략하면 `defaultOwnerID`(단일 소유자 의미론).
+    func start(owner: UUID = FullDiskAccessModel.defaultOwnerID) {
+        let wasEmpty = observingOwners.isEmpty
+        observingOwners.insert(owner)
+        guard wasEmpty else { return }
         guard activationObserver == nil else { return }
         startObservingActivation()
         refresh(presentIfNeeded: true)
@@ -140,7 +173,11 @@ final class FullDiskAccessModel {
         }
     }
 
-    func stopObservingActivation() {
+    /// - Parameter owner: 창 식별자. **마지막 소유자가 빠질 때만** 실제로 해제한다 —
+    ///   창 하나를 닫았다고 살아 있는 창의 FDA 재감지까지 끊으면 안 된다(다중 창 T1).
+    func stopObservingActivation(owner: UUID = FullDiskAccessModel.defaultOwnerID) {
+        observingOwners.remove(owner)
+        guard observingOwners.isEmpty else { return }
         if let activationObserver {
             NotificationCenter.default.removeObserver(activationObserver)
         }

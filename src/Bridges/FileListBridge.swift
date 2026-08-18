@@ -135,6 +135,11 @@ struct FileListBridge: NSViewRepresentable {
     // 2026-08-18 — 즐겨찾기 등록/해제 (컨텍스트 메뉴 진입점). 폴더에만 의미가 있다.
     var isFavorite: (URL) -> Bool = { _ in false }
     var onToggleFavorite: (URL) -> Void = { _ in }
+
+    /// "Open in New Window" (다중 창 T7). **항목 우클릭에만** 붙는다 —
+    /// 빈 영역 메뉴에는 넣지 않는다(사용자 결정: 대상이 모호해진다).
+    var onOpenInNewWindow: (URL) -> Void = { _ in }
+
     var onBeginRename: (URL) -> Void = { _ in }
     /// 커밋 직전 동기 검증. 사유를 돌려주면 편집이 유지된다 (UI설계 §7.2).
     var onValidateRename: (URL, String) -> String? = { _, _ in nil }
@@ -347,6 +352,11 @@ struct FileListBridge: NSViewRepresentable {
         /// 컨텍스트 메뉴가 겨냥한 즐겨찾기 대상 (2026-08-18).
         /// 메뉴를 연 시점의 항목을 스냅샷해 둔다 — 트리 브릿지의 `contextNode`와 같은 규칙이다.
         private(set) var favoriteTarget: URL?
+
+        /// 컨텍스트 메뉴가 겨냥한 "새 창으로 열기" 대상 (다중 창 T7).
+        /// `favoriteTarget`과 같은 규칙 — 클릭 시점 스냅샷이고, 폴더가 아니면 `nil`이다.
+        /// 심볼릭 링크 폴더는 `AppModel.open`과 **같은 규칙**으로 타겟을 해석해 둔다.
+        private(set) var newWindowTarget: URL?
 
         var appliedRevision: Int = -1
         /// 마지막으로 반영한 외부 변경 카운터 (m3-impl T0/B5).
@@ -586,8 +596,18 @@ struct FileListBridge: NSViewRepresentable {
         /// 뷰가 해제될 때도 호출된다(`dismantleNSView`) — 그때는 닫는 것만으로 끝내지 않고
         /// **패널이 우리를 가리키는 포인터까지 끊는다**: `dataSource`/`delegate`는 `assign` 속성이라
         /// 우리가 해제돼도 nil이 되지 않는다(M3 리뷰 blocker 3).
+        ///
+        /// **다중 창 (reviewer Major 1)**: `QLPreviewPanel`은 **앱에 하나뿐인 공유 패널**이다.
+        /// 예전에는 소유권을 보지 않고 `orderOut(nil)`을 무조건 불렀는데, 이 메서드는
+        /// `dismantleNSView`에서 **창이 닫힐 때마다** 호출되므로 창 A가 미리보기를 띄운 상태에서
+        /// 배경 창 B를 닫으면 **A의 미리보기가 함께 사라졌다**. 다중 창에서는 배경 창을 닫는 것이
+        /// 일상 동작이라 상시 발현한다. 그래서 **내가 패널의 dataSource/delegate일 때만** 손댄다.
+        ///
+        /// 소유자가 아니면 아무것도 하지 않아도 안전하다 — blocker 3이 막으려던 dangling 포인터는
+        /// "패널이 **나를** 가리킨 채 내가 해제되는 것"이고, 내가 소유자가 아니면 그 조건 자체가 없다.
         func closeQuickLookPanel() {
             guard QLPreviewPanel.sharedPreviewPanelExists(), let panel = QLPreviewPanel.shared() else { return }
+            guard ownsQuickLookPanel(panel) else { return }
             if panel.isVisible {
                 panel.orderOut(nil)
             }
@@ -600,10 +620,22 @@ struct FileListBridge: NSViewRepresentable {
         }
 
         /// 선택이 바뀌면 열려 있는 패널의 내용도 따라간다.
+        ///
+        /// 소유권 검사는 `closeQuickLookPanel`과 **같은 이유로 같은 규칙**을 쓴다. 다른 창이 띄운
+        /// 패널에 `reloadData()`를 날려도 실해는 없지만(패널은 자기 dataSource에게 다시 물어본다),
+        /// 두 메서드가 서로 다른 기준으로 공유 패널을 만지면 다음 사람이 어느 쪽이 옳은지 알 수 없다.
         private func reloadQuickLookPanelIfVisible() {
             guard QLPreviewPanel.sharedPreviewPanelExists(), let panel = QLPreviewPanel.shared(), panel.isVisible
             else { return }
+            guard ownsQuickLookPanel(panel) else { return }
             panel.reloadData()
+        }
+
+        /// 공유 패널이 **이 Coordinator(= 이 창의 목록)**를 보고 있는지.
+        func ownsQuickLookPanel(_ panel: QLPreviewPanel) -> Bool {
+            if let source = panel.dataSource, source === self { return true }
+            if let delegate = panel.delegate, delegate === self { return true }
+            return false
         }
 
         // MARK: QLPreviewPanelDataSource
@@ -966,6 +998,7 @@ struct FileListBridge: NSViewRepresentable {
             menu.autoenablesItems = false
             // 이전 메뉴의 대상이 남지 않게 매번 초기화한다(빈 영역 메뉴에는 즐겨찾기 항목이 없다).
             favoriteTarget = nil
+            newWindowTarget = nil
 
             if row >= 0, row < items.count {
                 buildItemMenu(menu, clicked: items[row])
@@ -979,6 +1012,18 @@ struct FileListBridge: NSViewRepresentable {
             let selectionCount = tableView?.selectedRowIndexes.count ?? 0
 
             menu.addItem(makeItem("Open", #selector(menuOpen), key: "\r", modifiers: []))
+
+            // 다중 창 T7 — Open 바로 아래. **폴더(심볼릭 링크 폴더 포함)일 때만** 활성이다:
+            // 파일을 새 창으로 여는 것은 의미가 없다(그건 기본 앱 실행이고 `Open`이 한다).
+            newWindowTarget = clicked.isDirectory ? AppModel.resolveTarget(of: clicked) : nil
+            menu.addItem(makeItem(
+                "Open in New Window",
+                #selector(menuOpenInNewWindow),
+                key: "",
+                modifiers: [],
+                enabled: clicked.isDirectory
+            ))
+
             menu.addItem(.separator())
             menu.addItem(makeItem("Copy", #selector(menuCopy), key: "c", modifiers: .command))
             menu.addItem(makeItem("Cut", #selector(menuCut), key: "x", modifiers: .command))
@@ -1075,6 +1120,11 @@ struct FileListBridge: NSViewRepresentable {
         @objc private func menuToggleFavorite() {
             guard let url = favoriteTarget else { return }
             parent.onToggleFavorite(url)
+        }
+
+        @objc private func menuOpenInNewWindow() {
+            guard let url = newWindowTarget else { return }
+            parent.onOpenInNewWindow(url)
         }
 
         /// 메뉴에서 기준만 고르는 경우 방향은 유지한다(헤더 클릭의 토글 규칙과 구분).

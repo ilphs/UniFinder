@@ -60,7 +60,25 @@ final class NavigationSmokeUITests: XCTestCase {
             "-showHiddenItems", "NO",
             "-sortKey", "name",
             "-sortAscending", "YES",
+            // 즐겨찾기도 같은 이유로 고정한다 (원칙 2 — 사용자 상태에 의존 금지).
+            //
+            // 즐겨찾기는 v0.2.0부터 **사용자가 편집할 수 있다.** 실제로 개발 머신에서 Documents를
+            // 목록에서 빼자 아래 3)단계가 "트리 즐겨찾기에 Documents 노드가 없다"로 무너졌다 —
+            // 앱 결함이 아니라 스모크가 사용자 상태를 전제한 탓이다.
+            //
+            // 값은 `NSArgumentDomain`이 old-style plist로 파싱해 `[String]`이 된다.
+            // 파싱되므로 `AppSettings`는 "키 부재" 경로(기본값 시딩 + **standard 도메인 쓰기**)를
+            // 타지 않는다 — 사용자의 실제 즐겨찾기 설정을 덮어쓰지 않는다는 뜻이다.
+            "-favoritePaths", Self.favoritePathsArgument,
         ]
+    }
+
+    /// 스모크가 전제하는 즐겨찾기 3종(= 최초 실행 기본값)을 argument domain 값으로 만든다.
+    private static var favoritePathsArgument: String {
+        let paths = ["Desktop", "Downloads", "Documents"].map {
+            "\"\(realHome.appendingPathComponent($0, isDirectory: true).path)\""
+        }
+        return "(\(paths.joined(separator: ",")))"
     }
 
     override func tearDownWithError() throws {

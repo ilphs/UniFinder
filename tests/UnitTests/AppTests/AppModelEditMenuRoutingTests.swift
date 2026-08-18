@@ -164,4 +164,55 @@ final class AppModelEditMenuRoutingTests: TempDirectoryTestCase {
         XCTAssertTrue(NSTableView.instancesRespond(to: #selector(NSText.selectAll(_:))))
         XCTAssertTrue(NSOutlineView.instancesRespond(to: #selector(NSText.selectAll(_:))))
     }
+
+    // MARK: - 다중 창 회귀: "focused 모델이 없다"고 텍스트 편집까지 죽으면 안 된다 (architect 지목 확정적 회귀)
+
+    /// `AppCommands`가 `@FocusedValue`로 전환되면서, 포커스된 창의 `AppModel`을 못 찾을 때
+    /// (예: 메뉴 렌더 타이밍에 아직 어떤 창도 key window가 아닌 경우) Cut/Copy/Paste/Select All을
+    /// `.disabled`로 내리면 **주소창·인라인 rename의 텍스트 편집이 통째로 죽는다**
+    /// (`AppCommands.swift:14-20`, `AppModel.swift:624-630` 경고 주석 참조 — ⌘ 단축키는
+    /// responder chain보다 메인 메뉴에서 먼저 잡히므로, 항목 자체가 비활성이면 field editor로
+    /// 내려갈 기회조차 없다).
+    ///
+    /// SwiftUI `Commands`/`@FocusedValue`는 뷰 계층 없이 직접 인스턴스화해 검증할 수 없으므로,
+    /// 여기서는 그 폴백 경로인 `AppModel.editCut/editCopy/editPaste/editSelectAll` +
+    /// `forwardToTextResponder`가 **모델의 파일 조작 상태(선택/클립보드)와 무관하게** 항상
+    /// 호출 가능함을 고정한다 — "포커스된 모델이 없다"는 상황을 흉내내는 가장 가까운 대역은
+    /// "목록에 아무 것도 로드/선택되지 않은 상태에서도 텍스트 편집 라우팅이 정상 동작한다"이다.
+    func testEditCutCopyPasteSelectAll_withNoSelectionOrClipboardState_stillRouteToTextFieldWhenEditing() {
+        let (model, recorder) = makeModel()
+        // 선택도, 클립보드 내용도, 로드된 목록도 없다 — "포커스 대상이 없다"에 가장 가까운 상태.
+        XCTAssertTrue(model.directory.items.isEmpty)
+        XCTAssertTrue(model.directory.selection.isEmpty)
+        XCTAssertNil(model.clipboard.operation)
+        model.isAddressEditing = true
+
+        model.editCut()
+        model.editCopy()
+        model.editPaste()
+        model.editSelectAll()
+
+        XCTAssertEqual(
+            recorder.selectors,
+            [
+                #selector(NSText.cut(_:)), #selector(NSText.copy(_:)), #selector(NSText.paste(_:)),
+                #selector(NSText.selectAll(_:)),
+            ],
+            "선택/클립보드가 비어 있어도 텍스트 편집 중이면 네 항목 모두 field editor로 위임돼야 한다 — " +
+            "메뉴 항목이 비활성화되면 이 경로 자체가 실행되지 않아 주소창·인라인 rename 편집이 죽는다"
+        )
+    }
+
+    /// Select All은 파일 조작 상태와 무관하게 **텍스트 편집 여부와도 무관하게** 항상 위임된다
+    /// (목록/트리에는 `selectAll` 핸들러가 없고 AppKit 기본 구현에 기대므로, 어떤 컨텍스트에서도
+    /// 비활성화되면 안 된다 — 메뉴 항목이 사라지는 순간 목록 전체 선택도 함께 죽는다).
+    func testEditSelectAll_withNoFocusedFileState_stillForwardsRegardlessOfEditingMode() {
+        let (model, recorder) = makeModel()
+
+        model.editSelectAll() // 파일 포커스 상태
+        model.isAddressEditing = true
+        model.editSelectAll() // 텍스트 포커스 상태
+
+        XCTAssertEqual(recorder.selectors.count, 2, "Select All은 어떤 포커스 상태에서도 매번 위임되어야 한다")
+    }
 }

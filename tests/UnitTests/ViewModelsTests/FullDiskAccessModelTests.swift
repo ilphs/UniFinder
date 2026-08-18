@@ -60,6 +60,56 @@ final class FullDiskAccessModelTests: XCTestCase {
         return (model, probe)
     }
 
+    // MARK: - 다중 창 배너 게이팅 (reviewer Major 2)
+
+    /// **핵심 회귀** — 시트는 소유 창 하나에만 뜨는데, 배너까지 전 창에서 숨기면
+    /// **시트를 보지도 못한 창들이 제한 모드라는 사실 자체를 알 수 없다.**
+    ///
+    /// `isOnboardingPresented`는 앱 전역 공유 인스턴스의 `Bool` 하나라서, 예전 구현
+    /// (`guard !isOnboardingPresented`)은 소유 창에 시트가 뜨는 순간 **모든 창의 배너**를 껐다.
+    func testShouldShowBanner_whileSheetIsOpen_staysVisibleOnNonPresenterWindows() {
+        let (model, _) = makeModel(.denied)
+
+        model.start()
+        XCTAssertTrue(model.isOnboardingPresented, "전제 확인 — 미허용이면 시트가 뜬다")
+
+        XCTAssertFalse(
+            model.shouldShowBanner(isPresenter: true),
+            "시트에 실제로 가려지는 소유 창에서는 배너를 중복 노출하지 않는다"
+        )
+        XCTAssertTrue(
+            model.shouldShowBanner(isPresenter: false),
+            "시트를 띄우지 않는 창은 배너로만 제한 모드를 알 수 있다 — 여기서 숨기면 안내가 통째로 사라진다"
+        )
+    }
+
+    /// 판정 불가(`.undetermined`)에서도 같은 규칙이다 — 시트는 아예 안 뜨므로 전 창이 배너를 본다.
+    func testShouldShowBanner_undetermined_showsOnEveryWindow() {
+        let (model, _) = makeModel(.missing)
+        model.start()
+
+        XCTAssertFalse(model.isOnboardingPresented, "전제 확인 — 판정 불가는 시트를 띄우지 않는다(B22)")
+        XCTAssertTrue(model.shouldShowBanner(isPresenter: true))
+        XCTAssertTrue(model.shouldShowBanner(isPresenter: false))
+    }
+
+    /// 허용된 상태에서는 소유 여부와 무관하게 아무 창에도 배너가 없다.
+    func testShouldShowBanner_granted_isHiddenOnEveryWindow() {
+        let (model, _) = makeModel(.readable)
+        model.start()
+
+        XCTAssertFalse(model.shouldShowBanner(isPresenter: true))
+        XCTAssertFalse(model.shouldShowBanner(isPresenter: false))
+    }
+
+    /// 편의 프로퍼티는 소유 창 기준(= 단일 창 시절 의미론)을 유지한다.
+    func testShouldShowBannerProperty_matchesPresenterSemantics() {
+        let (model, _) = makeModel(.denied)
+        model.start()
+
+        XCTAssertEqual(model.shouldShowBanner, model.shouldShowBanner(isPresenter: true))
+    }
+
     // MARK: - 첫 실행 안내
 
     func testStart_whenDenied_presentsOnboarding() {
@@ -375,5 +425,52 @@ final class FullDiskAccessModelTests: XCTestCase {
             XCTAssertEqual(url.scheme, "x-apple.systempreferences")
             XCTAssertTrue(url.absoluteString.hasSuffix("Privacy_AllFiles"))
         }
+    }
+
+    // MARK: - 다중 창 소유권 (다중 창 지원 — 여러 창이 같은 FullDiskAccessModel을 공유할 때)
+
+    /// 창 A·창 B가 같은 `FullDiskAccessModel`을 공유하며 각자 다른 `owner`로 `start(owner:)`를
+    /// 부른 상황을 흉내낸다. 창 하나만 닫혀도(그 창의 owner만 해제) 다른 창이 아직 열려
+    /// 있으므로 재감지는 계속 살아 있어야 한다.
+    func testStartTwoOwners_thenStopObservingOne_stillReactsToActivation() async {
+        let (model, probe) = makeModel(.denied)
+        let windowA = UUID()
+        let windowB = UUID()
+        model.start(owner: windowA)
+        model.postpone()
+        model.start(owner: windowB)
+
+        model.stopObservingActivation(owner: windowA)
+
+        probe.set(.readable)
+        NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        await waitUntil { model.status == .granted }
+
+        XCTAssertEqual(
+            model.status, .granted,
+            "두 창이 관측 중인데 한 창만 닫혔다고 재감지가 죽으면 안 된다(다른 창의 FDA 재감지가 죽는다)"
+        )
+    }
+
+    /// 두 창이 각자 시작했으면 두 창이 각자 해제해야 완전히 멈춘다.
+    func testStartTwoOwners_thenStopObservingBoth_noLongerReactsToActivation() async {
+        let (model, probe) = makeModel(.denied)
+        let windowA = UUID()
+        let windowB = UUID()
+        model.start(owner: windowA)
+        model.postpone()
+        model.start(owner: windowB)
+
+        model.stopObservingActivation(owner: windowA)
+        model.stopObservingActivation(owner: windowB)
+
+        probe.set(.readable)
+        NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        await waitUntil(timeout: 0.5) { model.status == .granted }
+
+        XCTAssertEqual(
+            model.status, .denied,
+            "시작한 횟수만큼 해제됐다면 재감지가 완전히 멈춰야 한다"
+        )
     }
 }

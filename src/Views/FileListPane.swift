@@ -5,6 +5,9 @@ struct FileListPane: View {
 
     @Bindable var model: AppModel
 
+    /// 다중 창 T7 — 컨텍스트 메뉴의 "Open in New Window" 진입점.
+    @Environment(\.openWindow) private var openWindow
+
     var body: some View {
         ZStack {
             FileListBridge(
@@ -45,6 +48,9 @@ struct FileListPane: View {
                 onRevealInFinder: { model.revealInFinder() },
                 isFavorite: { model.isFavorite($0) },
                 onToggleFavorite: { model.toggleFavorite($0) },
+                onOpenInNewWindow: { url in
+                    openWindow(id: UniFinderApp.mainWindowID, value: WindowSeed(folderURL: url))
+                },
                 onBeginRename: { model.requestRename($0) },
                 onValidateRename: { model.validateRename($0, to: $1) },
                 onCommitRename: { model.rename($0, to: $1) },
@@ -125,6 +131,9 @@ struct SidebarPane: View {
 
     @Bindable var model: AppModel
 
+    /// 다중 창 T7 — 트리 컨텍스트 메뉴의 "Open in New Window" 진입점.
+    @Environment(\.openWindow) private var openWindow
+
     var body: some View {
         SidebarTreeBridge(
             model: model.tree,
@@ -149,7 +158,10 @@ struct SidebarPane: View {
             onCommitRename: { model.rename($0, to: $1) },
             onRenamingChanged: { model.isRenaming = $0 },
             isFavorite: { model.isFavorite($0) },
-            onToggleFavorite: { model.toggleFavorite($0) }
+            onToggleFavorite: { model.toggleFavorite($0) },
+            onOpenInNewWindow: { url in
+                openWindow(id: UniFinderApp.mainWindowID, value: WindowSeed(folderURL: url))
+            }
         )
         .frame(minWidth: 180, idealWidth: model.settings.sidebarWidth, maxWidth: 400)
         .background(Color(nsColor: .windowBackgroundColor))
