@@ -6,10 +6,10 @@ macOS Finder를 대체하는 **Windows 10 탐색기 스타일 2-pane 파일 탐�
 
 | | |
 |---|---|
-| **버전** | 0.2.0 |
+| **버전** | 0.3.0 |
 | **요구 사항** | macOS 14 (Sonoma) 이상 |
 | **기술 스택** | Swift 5.10+, SwiftUI + AppKit 하이브리드 |
-| **테스트** | 535 unit + 1 UI 스모크 |
+| **테스트** | 565 unit + 1 UI 스모크 |
 
 ---
 
@@ -46,7 +46,8 @@ macOS Finder를 대체하는 **Windows 10 탐색기 스타일 2-pane 파일 탐�
 
 | 메뉴 | 항목 | 단축키 |
 |------|------|--------|
-| **File** | New Folder | ⇧⌘N |
+| **File** | New Window | ⌘N |
+| | New Folder | ⇧⌘N |
 | | Open | ⌘O |
 | | Show in Finder | ⌘I |
 | | Rename | F2 |
