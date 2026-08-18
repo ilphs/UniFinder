@@ -56,7 +56,9 @@ final class AppSettings {
         self.sortDescriptor = FileSortDescriptor(key: key, ascending: ascending)
 
         let width = defaults.double(forKey: Key.sidebarWidth)
-        self.sidebarWidth = (width >= 180 && width <= 400) ? width : 240
+        // 2026-08-18 — 창을 처음 열 때 사이드바:목록 비율을 1:4로 맞춰 달라는 요청.
+        // 런치 창 기본 폭이 1080(`UniFinderApp.defaultSize`)이라 1/5인 216을 기본값으로 둔다.
+        self.sidebarWidth = (width >= 180 && width <= 400) ? width : 216
 
         // **키 부재와 빈 배열은 다른 상태다.** 최초 실행(키 부재)에만 기본 3개를 시딩하고,
         // 사용자가 전부 지운 상태(빈 배열)는 그대로 존중한다 — 아니면 다음 실행마다 되살아난다.

@@ -163,7 +163,15 @@ struct SidebarPane: View {
                 openWindow(id: UniFinderApp.mainWindowID, value: WindowSeed(folderURL: url))
             }
         )
-        .frame(minWidth: 180, idealWidth: model.settings.sidebarWidth, maxWidth: 400)
+        .frame(minWidth: 180, maxWidth: 400)
         .background(Color(nsColor: .windowBackgroundColor))
+        // 창을 열 때 기본 비율을 1:4로 강제한다(2026-08-18 요청) — `SplitRatioProbe` 참조.
+        // `idealWidth` 힌트나 일시적 rigid `frame(width:)` 전환 같은 순수 SwiftUI 트릭은
+        // 전부 실측으로 실패가 확인됐다: `HSplitView`(AppKit `NSSplitView`)는 최초 배치 시
+        // 두 pane을 반반 나눈 뒤 min/maxWidth로만 clamp하고, 이후 프레임 변경으로 인한
+        // 재배치는 `idealWidth`가 아니라 뷰의 `fittingSize`(사실상 최소)로 수렴한다 — 그래서
+        // 두 경우 모두 216을 지키지 못하고 각각 400/180으로 튄다. `setPosition`을 직접 호출하는
+        // 이 프로브만 유일하게 먹혔다.
+        .background(SplitRatioProbe(ratio: 1.0 / 5.0, minWidth: 180, maxWidth: 400))
     }
 }
