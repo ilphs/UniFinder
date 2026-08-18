@@ -2,10 +2,13 @@ import AppKit
 import XCTest
 @testable import UniFinder
 
-/// 사이드바 확대(2026-08-18 사용자 요청) — 치수 계약 + 행 높이 수용성.
+/// 사이드바 치수 계약 (2026-08-18 사용자 요청 — **섹션 헤더만** 확대, 폴더 행은 우측 목록과 동일).
 ///
-/// **이 테스트가 잡으려는 결함**: 폰트/아이콘만 키우고 행 높이를 그대로 두면 셀 위아래가 잘린다.
-/// 잘림 자체는 픽셀을 봐야 알 수 있으므로, "행 높이가 콘텐츠를 담기에 충분한가"를 산술로 단언한다.
+/// **이 테스트가 잡으려는 결함 두 가지**
+/// 1. 잘림 — 폰트/아이콘만 키우고 행 높이를 그대로 두면 셀 위아래가 잘린다. 픽셀을 봐야 아는
+///    결함이라 "행 높이가 콘텐츠를 담기에 충분한가"를 산술로 단언한다.
+/// 2. 의도 역전 — 헤더>항목 크기 관계(macOS 관례와 반대)와 폴더 행=목록 동일성은 **사용자가 확정한
+///    선택**이다. 다음 사람이 "표준에 맞춘다"며 되돌리면 요청이 조용히 무효화되므로 관계로 못박는다.
 @MainActor
 final class SidebarMetricsTests: TempDirectoryTestCase {
 
@@ -41,24 +44,40 @@ final class SidebarMetricsTests: TempDirectoryTestCase {
     // MARK: - 확정된 치수 (사용자 요청 값)
 
     func testSidebarMetrics_matchRequestedSizes() {
-        XCTAssertEqual(SidebarMetrics.sectionFontSize, 13)
-        XCTAssertEqual(SidebarMetrics.sectionSymbolLength, 15)
-        XCTAssertEqual(SidebarMetrics.sectionSymbolPointSize, 13)
-        XCTAssertEqual(SidebarMetrics.nodeFontSize, 15)
-        XCTAssertEqual(SidebarMetrics.nodeIconLength, 18)
+        XCTAssertEqual(SidebarMetrics.sectionFontSize, 15)
+        XCTAssertEqual(SidebarMetrics.sectionSymbolLength, 17)
+        XCTAssertEqual(SidebarMetrics.sectionSymbolPointSize, 15)
+        XCTAssertEqual(SidebarMetrics.nodeFontSize, 13)
+        XCTAssertEqual(SidebarMetrics.nodeIconLength, 16)
     }
 
-    /// 헤더가 항목보다 **작아야** 그룹 헤더로 읽힌다 (사용자 요청의 유일한 위계 제약).
-    func testSectionHeader_staysSmallerThanFolderRow() {
-        XCTAssertLessThan(
+    /// **확대 대상은 헤더뿐**이다 (2026-08-18 사용자 확정: "Favorites/Home/Volumes 자체의 아이콘과
+    /// 문자열"). macOS 표준 사이드바는 헤더를 항목보다 작게 그리지만 이 앱은 Win10 탐색기를 지향하고
+    /// 사용자가 헤더 강조를 명시적으로 요구했다 — 이 관계가 뒤집히면 요청이 무효화된 것이다.
+    func testSectionHeader_standsOutAboveFolderRow() {
+        XCTAssertGreaterThan(
             SidebarMetrics.sectionFontSize,
             SidebarMetrics.nodeFontSize,
-            "섹션 헤더가 폴더 행보다 작지 않으면 그룹 헤더로 보이지 않는다"
+            "섹션 헤더가 폴더 행보다 크지 않다 — 헤더를 키워 달라는 요청이 되돌려졌다"
         )
-        XCTAssertLessThan(
+        XCTAssertGreaterThan(
             SidebarMetrics.sectionSymbolLength,
             SidebarMetrics.nodeIconLength,
-            "헤더 심볼이 폴더 아이콘보다 커지면 위계가 뒤집힌다"
+            "헤더 심볼이 폴더 아이콘보다 크지 않다 — 헤더 아이콘 강조가 사라졌다"
+        )
+    }
+
+    /// 폴더 행은 우측 파일 목록과 **완전히 같은 크기**여야 한다 (사용자 확정: "하위 폴더는
+    /// 오른쪽창과 동일한 크기"). 숫자를 양쪽에 따로 적으면 조용히 어긋나므로 상수 동일성으로 고정한다.
+    func testFolderRow_matchesFileListPaneExactly() {
+        XCTAssertEqual(SidebarMetrics.nodeFontSize, FileListMetrics.nameFontSize, "폴더 행 글자 크기가 목록과 다르다")
+        XCTAssertEqual(SidebarMetrics.nodeIconLength, FileListMetrics.iconLength, "폴더 아이콘 크기가 목록과 다르다")
+        XCTAssertEqual(SidebarMetrics.nodeRowHeight, FileListMetrics.rowHeight, "폴더 행 높이가 목록과 다르다")
+        XCTAssertEqual(FileListMetrics.rowHeight, 22, "목록 행 높이(UI설계 §4.1)가 바뀌었다")
+        XCTAssertEqual(
+            SidebarMetrics.placeholderFontSize,
+            FileListMetrics.secondaryFontSize,
+            "'Loading…' placeholder가 목록 보조 텍스트와 다른 크기다"
         )
     }
 
@@ -83,41 +102,40 @@ final class SidebarMetricsTests: TempDirectoryTestCase {
         )
     }
 
+    /// 폴더 행 높이는 우측 목록에 묶여 있어(22pt) 여백을 마음대로 못 늘린다 —
+    /// 그 안에 아이콘(16)과 13pt/12pt 텍스트가 **실제로 들어가는지**가 유일한 안전장치다.
     func testNodeRowHeight_containsIconAndText() {
-        let padding = SidebarMetrics.nodeVerticalPadding * 2
         XCTAssertGreaterThanOrEqual(
             SidebarMetrics.nodeRowHeight,
-            SidebarMetrics.nodeIconLength + padding,
-            "폴더 행이 아이콘 + 여백을 담지 못한다"
+            SidebarMetrics.nodeIconLength,
+            "폴더 행이 아이콘을 담지 못한다"
         )
         XCTAssertGreaterThanOrEqual(
             SidebarMetrics.nodeRowHeight,
-            SidebarMetrics.lineHeight(of: SidebarMetrics.nodeFont) + padding,
-            "폴더 행이 텍스트 라인 높이 + 여백을 담지 못한다 — 글자 위아래가 잘린다"
+            SidebarMetrics.lineHeight(of: SidebarMetrics.nodeFont),
+            "폴더 행이 텍스트 라인 높이를 담지 못한다 — 글자 위아래가 잘린다"
         )
         // placeholder("Loading…")도 같은 높이의 행에 그려진다.
         XCTAssertGreaterThanOrEqual(
             SidebarMetrics.nodeRowHeight,
-            SidebarMetrics.lineHeight(of: SidebarMetrics.placeholderFont) + padding,
+            SidebarMetrics.lineHeight(of: SidebarMetrics.placeholderFont),
             "placeholder 행이 'Loading…' 텍스트를 담지 못한다"
         )
+        XCTAssertEqual(SidebarMetrics.nodeRowHeight, SidebarMetrics.nodeContentHeight + 6, accuracy: 0.5)
     }
 
-    /// 확대 **이전** 사이드바는 `rowSizeStyle = .default`로 행 간격이 32pt였다(실행 화면 실측).
-    /// 행 높이를 직접 정하면서 이 값보다 좁히면 글자만 커지고 줄 간격은 좁아져 더 답답해진다 —
-    /// "읽기 불편하다"는 원래 요청과 정반대가 되므로 회귀로 잡는다.
-    static let legacyDefaultRowHeight: CGFloat = 32
-
-    func testRowHeights_notTighterThanLegacyDefault() {
-        XCTAssertGreaterThanOrEqual(
-            SidebarMetrics.nodeRowHeight,
-            Self.legacyDefaultRowHeight,
-            "폴더 행이 확대 전보다 좁아졌다 — 글자만 커지고 줄 간격이 답답해진다"
-        )
-        XCTAssertGreaterThanOrEqual(
+    /// 헤더 행은 폴더 행(22pt)보다 높아야 그룹 경계로 읽히지만, 과하게 높으면 헤더 텍스트가
+    /// 위아래 가운데에서 붕 떠 자기 그룹과 멀어진다(행 높이만 정할 수 있고 위/아래 여백을 따로 줄 수 없다).
+    func testSectionRowHeight_tallerThanFolderRowButNotFloaty() {
+        XCTAssertGreaterThan(
             SidebarMetrics.sectionRowHeight,
-            Self.legacyDefaultRowHeight,
-            "섹션 헤더 행이 확대 전보다 좁아졌다"
+            SidebarMetrics.nodeRowHeight,
+            "헤더 행이 폴더 행보다 높지 않아 그룹 경계가 흐려진다"
+        )
+        XCTAssertLessThanOrEqual(
+            SidebarMetrics.sectionRowHeight - SidebarMetrics.nodeRowHeight,
+            8,
+            "헤더 행이 폴더 행보다 8pt 넘게 높다 — 헤더가 자기 그룹에서 떠 보인다"
         )
     }
 
@@ -136,6 +154,29 @@ final class SidebarMetricsTests: TempDirectoryTestCase {
 
         // TreeNode가 아닌 항목이 와도 폴더 행 높이로 안전하게 떨어진다.
         XCTAssertEqual(coordinator.rowHeight(for: NSObject()), SidebarMetrics.nodeRowHeight)
+    }
+
+    /// **헤더 확대가 실제로 화면에 나오게 만드는 핵심 조건** (2026-08-18 실측으로 밝혀냄).
+    ///
+    /// 섹션을 그룹 행(`isGroupItem == true`)으로 선언하면 `style = .sourceList`의 AppKit이
+    /// 셀의 텍스트 폰트와 심볼 크기를 **표준 사이드바 헤더 크기로 강제**한다. 그러면
+    /// `SidebarMetrics.sectionFontSize`를 아무리 키워도(24pt까지 실험) 화면은 그대로다.
+    /// 이 단언이 무너지면 헤더 확대 요구가 조용히 무효화된다 —
+    /// **단위 테스트로는 폰트 값이 정상으로 보이기 때문에** 이 조건 자체를 지키는 수밖에 없다.
+    func testSections_areNotGroupRows_soHeaderFontSurvives() throws {
+        let coordinator = makeCoordinator()
+        let model = coordinator.parent.model
+        let outline = KeyRoutingOutlineView(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
+        retainedViews.append(outline)
+
+        let section = try XCTUnwrap(model.sections.first)
+        XCTAssertFalse(
+            coordinator.outlineView(outline, isGroupItem: section),
+            "섹션이 그룹 행으로 선언됐다 — AppKit이 헤더 폰트/심볼을 표준 크기로 덮어써 확대가 무효화된다"
+        )
+
+        // 섹션이 그룹 행이 아니어도 선택은 여전히 막혀 있어야 한다(그룹 행이 아니라 이쪽이 보장한다).
+        XCTAssertFalse(coordinator.outlineView(outline, shouldSelectItem: section))
     }
 
     /// `rowSizeStyle`이 `.custom`이 아니면 AppKit이 델리게이트 높이를 **무시**해서
@@ -210,16 +251,14 @@ final class SidebarMetricsTests: TempDirectoryTestCase {
         let symbolFrame = symbolView.frame
         let textFrame = try XCTUnwrap(cell.textField?.frame)
 
-        // SF Symbol을 담은 `NSImageView`는 **0이 아닌 `alignmentRectInsets`**(위/아래 여백)를 갖는다 —
-        // Auto Layout 제약은 프레임이 아니라 정렬 사각형에 걸리므로, 크기 계약은 그쪽으로 확인한다.
-        // (프레임 높이로 단언하면 심볼 폰트 메트릭에 따라 흔들린다)
-        XCTAssertEqual(
-            symbolView.alignmentRect(forFrame: symbolFrame).height,
-            SidebarMetrics.sectionSymbolLength,
-            accuracy: 0.5
-        )
-        XCTAssertGreaterThanOrEqual(symbolFrame.minY, 0, "헤더 심볼이 행 위로 삐져나갔다")
-        XCTAssertLessThanOrEqual(symbolFrame.maxY, cell.bounds.height + 0.5, "헤더 심볼이 행 아래로 잘린다")
+        // SF Symbol을 담은 `NSImageView`는 **0이 아닌 `alignmentRectInsets`**(위/아래 여백)를 갖는다.
+        // 프레임에는 그 여백이 포함돼 실제 글리프 상자보다 크므로, 크기·잘림 판정은 **정렬 사각형**으로
+        // 해야 한다. 프레임 기준으로 단언하면 눈에 보이는 심볼은 멀쩡한데도 "잘렸다"고 오탐한다
+        // (헤더 15pt에서 프레임이 행보다 2pt 큰데 글리프는 행 안에 여유 있게 들어온다).
+        let symbolBox = symbolView.alignmentRect(forFrame: symbolFrame)
+        XCTAssertEqual(symbolBox.height, SidebarMetrics.sectionSymbolLength, accuracy: 0.5)
+        XCTAssertGreaterThanOrEqual(symbolBox.minY, 0, "헤더 심볼이 행 위로 삐져나갔다")
+        XCTAssertLessThanOrEqual(symbolBox.maxY, cell.bounds.height + 0.5, "헤더 심볼이 행 아래로 잘린다")
         XCTAssertGreaterThanOrEqual(
             textFrame.height,
             SidebarMetrics.lineHeight(of: SidebarMetrics.sectionFont) - 0.5,
@@ -247,7 +286,13 @@ final class SidebarMetricsTests: TempDirectoryTestCase {
         window.contentView?.addSubview(cell)
 
         let node = TreeNode(kind: .folder, url: testRoot, name: "Documents", isSymlink: false, parent: nil)
-        cell.configure(node: node, folderIcon: NSImage(size: NSSize(width: 18, height: 18)))
+        cell.configure(
+            node: node,
+            folderIcon: NSImage(size: NSSize(
+                width: SidebarMetrics.nodeIconLength,
+                height: SidebarMetrics.nodeIconLength
+            ))
+        )
 
         let before = try XCTUnwrap(cell.textField?.font)
         XCTAssertEqual(before.pointSize, SidebarMetrics.nodeFontSize)
@@ -270,11 +315,14 @@ final class SidebarMetricsTests: TempDirectoryTestCase {
         XCTAssertLessThanOrEqual(textFrame.height, cell.bounds.height + 0.5, "편집 필드가 행보다 크다")
     }
 
-    /// 우측 파일 목록은 이번 확대 대상이 아니다 — 사이드바 상수가 목록 셀로 새지 않았는지 지킨다.
-    func testFileListCells_keepOriginalSizes() throws {
-        let cell = FileNameCellView(frame: NSRect(x: 0, y: 0, width: 300, height: 22))
-        retainedViews.append(cell)
-        cell.configure(
+    /// 상수뿐 아니라 **실제로 배치된 셀**이 좌우 같은 크기로 그려지는지 —
+    /// 사용자가 보는 것은 상수가 아니라 렌더 결과다("하위 폴더는 오른쪽창과 동일한 크기").
+    func testFolderCellAndListCell_renderIdenticalSizes() throws {
+        let listCell = FileNameCellView(
+            frame: NSRect(x: 0, y: 0, width: 300, height: FileListMetrics.rowHeight)
+        )
+        retainedViews.append(listCell)
+        listCell.configure(
             with: FileItem(
                 url: testRoot.appendingPathComponent("a.txt"),
                 name: "a.txt",
@@ -287,9 +335,37 @@ final class SidebarMetricsTests: TempDirectoryTestCase {
             ),
             iconProvider: IconProvider { _ in nil }
         )
-        cell.layoutSubtreeIfNeeded()
+        listCell.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(try XCTUnwrap(cell.textField?.font).pointSize, 13, "목록 셀 폰트가 사이드바 확대에 휩쓸렸다")
-        XCTAssertEqual(try XCTUnwrap(cell.imageView?.frame).height, 16, accuracy: 0.5, "목록 아이콘이 사이드바 확대에 휩쓸렸다")
+        let treeCell = TreeNodeCellView(
+            frame: NSRect(x: 0, y: 0, width: 300, height: SidebarMetrics.nodeRowHeight)
+        )
+        retainedViews.append(treeCell)
+        let node = TreeNode(kind: .folder, url: testRoot, name: "a", isSymlink: false, parent: nil)
+        treeCell.configure(
+            node: node,
+            folderIcon: NSImage(size: NSSize(
+                width: SidebarMetrics.nodeIconLength,
+                height: SidebarMetrics.nodeIconLength
+            ))
+        )
+        treeCell.layoutSubtreeIfNeeded()
+
+        // 목록 쪽 절대값도 함께 못박는다 — 양쪽이 "같이" 커지는 회귀는 동일성 단언만으로는 못 잡는다.
+        XCTAssertEqual(try XCTUnwrap(listCell.textField?.font).pointSize, 13, "목록 셀 폰트(UI설계 §4.1)가 바뀌었다")
+        XCTAssertEqual(try XCTUnwrap(listCell.imageView?.frame).height, 16, accuracy: 0.5, "목록 아이콘 크기가 바뀌었다")
+
+        XCTAssertEqual(
+            try XCTUnwrap(treeCell.textField?.font).pointSize,
+            try XCTUnwrap(listCell.textField?.font).pointSize,
+            "트리 폴더 행과 목록 행의 글자 크기가 다르다"
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(treeCell.imageView?.frame).height,
+            try XCTUnwrap(listCell.imageView?.frame).height,
+            accuracy: 0.5,
+            "트리 폴더 아이콘과 목록 아이콘 크기가 다르다"
+        )
+        XCTAssertEqual(treeCell.bounds.height, listCell.bounds.height, accuracy: 0.5, "행 높이가 다르다")
     }
 }

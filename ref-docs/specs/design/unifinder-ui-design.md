@@ -50,18 +50,28 @@ updated: 2026-08-13
 
 ## 3. 좌측 트리 상세
 
-- 섹션 헤더: "Favorites", "Home", "Volumes" — 13pt semibold `secondaryLabelColor`, 접기/펼치기 가능
-  - **섹션 아이콘**(2026-08-18 사용자 요청): 즐겨찾기 `star` / 홈 `house` / 볼륨 `internaldrive` (SF Symbols, 13pt / 15pt 프레임).
+- 섹션 헤더: "Favorites", "Home", "Volumes" — **15pt semibold** `secondaryLabelColor`, 행 높이 26pt, 접기/펼치기 가능
+  - **섹션 아이콘**(2026-08-18 사용자 요청): 즐겨찾기 `star` / 홈 `house` / 볼륨 `internaldrive` (SF Symbols, 15pt / 17pt 프레임).
     macOS 표준 사이드바 헤더에는 아이콘이 없지만 이 앱은 **Win10 탐색기를 지향**하므로 헤더에도 아이콘을 둔다.
-    색·굵기는 라벨과 같은 계열(`secondaryLabelColor`, semibold)로 맞춰 헤더가 본문보다 튀지 않게 한다.
+    색·굵기는 라벨과 같은 계열(`secondaryLabelColor`, semibold)로 맞춘다.
   - 아이콘 매핑은 헤더 **문자열이 아니라 `TreeNode.SectionKind`** 기준이다(헤더 문구가 바뀌어도 안전).
-- 행: 폴더 아이콘(18pt) + 이름(15pt), 행 높이 32pt·인덴트 16pt
-  - **사이드바 확대**(2026-08-18 사용자 요청): 헤더 11→13pt / 아이콘 13→15pt 프레임, 폴더 행 13→15pt / 아이콘 16→18pt.
-    헤더는 항목보다 **작게** 유지해 그룹 헤더 위계를 지킨다.
+  - **헤더가 항목보다 크다**(15pt vs 13pt). macOS 표준(헤더가 더 작음)과 반대이며 **의도된 선택**이다 —
+    사용자가 "사이드바 크기를 크게 해달라고 한 건 Favorites/Home/Volumes 자체의 아이콘과 문자열"이라고
+    확정했다(2026-08-18). 헤더 심볼(17)도 폴더 아이콘(16)보다 크다. 되돌리지 말 것.
+  - **섹션은 `isGroupItem`으로 선언하지 않는다.** `style = .sourceList`의 그룹 행은 AppKit이 셀의
+    폰트·심볼 크기를 표준 헤더 크기로 **강제**해서, 헤더 폰트를 24pt로 키워도 화면이 변하지 않는다
+    (폰트 세터 차단·그리기 직전 재지정 등 우회 시도는 모두 실패, 2026-08-18 실행 화면 실측).
+    그래서 섹션을 일반 행으로 두고 크기를 직접 통제한다. 대신 헤더에 디스클로저 삼각형이 보이며
+    이것으로 접기/펼치기를 한다(Win10 탐색기의 섹션과 같은 방식). 선택 불가는 `shouldSelectItem`이 보장한다.
+    이 조건은 `SidebarMetricsTests.testSections_areNotGroupRows_soHeaderFontSurvives`가 지킨다.
+- 행: 폴더 아이콘(16pt) + 이름(13pt), 행 높이 22pt·인덴트 14pt — **우측 목록(§4.1)과 완전히 동일**
+  - 사용자 확정(2026-08-18): "하위 폴더는 오른쪽창과 동일한 크기". 글자·아이콘뿐 아니라 **행 높이까지** 같다.
+  - 같은 숫자를 좌우에 따로 적으면 조용히 어긋나므로, 목록 치수를 `FileListMetrics`로 노출하고
+    `SidebarMetrics`가 그것을 **참조**한다(`nodeFontSize = FileListMetrics.nameFontSize` 등).
+    `FileListBridge.rowHeight`도 같은 상수를 쓴다 — 한쪽만 바꾸는 것이 불가능하다.
   - 치수는 `SidebarMetrics`(src/Bridges/FileListCellViews.swift) 한곳에서만 정의하고, 행 높이는
     `SidebarTreeBridge`가 `outlineView(_:heightOfRowByItem:)`으로 돌려준다(`rowSizeStyle = .custom`).
-    시스템 기본 행 높이(`.default` = 32pt 실측)를 그대로 두면 키운 셀 내용이 잘리고, 반대로 행 높이를
-    기본 여백만큼 확보하지 않으면 글자만 커지고 줄 간격이 좁아져 더 답답해진다 — 확대 전 32pt 리듬을 유지한다.
+    `.default`(시스템 고정 높이 = 32pt 실측)로 두면 커진 헤더가 잘리고 폴더 행도 목록과 다른 리듬이 된다.
   - **볼륨 섹션 바로 아래 노드만** 공용 폴더 아이콘 대신 `NSWorkspace.icon(forFile:)`의 실제 디스크 아이콘을 쓴다(2026-08-18).
     디스크 조회 비용이 있으므로 `VolumeIconCache`가 볼륨당 1회만 조회하고, 마운트/언마운트/볼륨 이름 변경으로
     섹션이 다시 만들어질 때(`TreeModel.sectionsRevision`)만 캐시를 버린다.

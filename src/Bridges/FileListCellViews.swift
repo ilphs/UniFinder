@@ -1,49 +1,82 @@
 import AppKit
 
-/// 좌측 사이드바(트리) 전용 치수 (2026-08-18 — 사이드바 확대 요청).
+/// 우측 파일 목록 치수 (UI설계 §4.1).
+///
+/// **왜 상수로 빼는가**: 사용자가 사이드바 폴더 행을 "오른쪽 창과 동일한 크기"로 요구했다
+/// (2026-08-18). 같은 숫자를 양쪽에 따로 적어 두면 한쪽만 바뀌었을 때 조용히 어긋나므로,
+/// `SidebarMetrics`가 이 값을 **직접 참조**해 "동일함"을 컴파일 시점 사실로 만든다.
+enum FileListMetrics {
+
+    /// 목록 행 높이. `FileListBridge`가 `tableView.rowHeight`로 그대로 쓴다.
+    static let rowHeight: CGFloat = 22
+    /// 이름 컬럼 텍스트.
+    static let nameFontSize: CGFloat = 13
+    /// 이름 컬럼 아이콘 프레임(정사각형).
+    static let iconLength: CGFloat = 16
+    /// 수정일/종류/크기 등 보조 텍스트. 트리의 "Loading…" placeholder도 같은 계열로 맞춘다.
+    static let secondaryFontSize: CGFloat = 12
+
+    static var nameFont: NSFont { .systemFont(ofSize: nameFontSize) }
+    static var secondaryFont: NSFont { .systemFont(ofSize: secondaryFontSize) }
+}
+
+/// 좌측 사이드바(트리) 전용 치수 (2026-08-18 — 사이드바 확대 요청, 같은 날 2차로 범위 축소).
 ///
 /// **왜 한곳에 모으는가**: 폰트·아이콘 프레임·심볼 pointSize·행 높이는 서로 맞물려 있어서
 /// 한 값만 키우면 다른 쪽이 잘린다. 특히 행 높이는 `SidebarTreeBridge`가, 셀 내용은
 /// 이 파일이 정하므로 두 파일에 상수를 흩뿌리면 어긋난 채로 조용히 잘리기 쉽다.
 ///
-/// **우측 파일 목록은 여기에 포함하지 않는다** — 이번 확대 대상이 아니며, 목록 셀은
-/// 자체 값(13pt / 16pt 아이콘)을 그대로 유지한다.
+/// **확대 대상은 섹션 헤더뿐이다** (2026-08-18 사용자 확정):
+/// - 헤더(Favorites/Home/Volumes)는 **키운다** — 섹션 구분이 눈에 들어와야 한다는 것이 요청의 핵심이다.
+/// - 폴더 행은 **우측 목록과 완전히 같은 크기**로 되돌린다 — 글자·아이콘뿐 아니라 행 높이까지
+///   `FileListMetrics`를 그대로 참조한다.
 enum SidebarMetrics {
 
     // MARK: 섹션 헤더 (Favorites / Home / Volumes)
 
-    /// 헤더 텍스트. 폴더 행(`nodeFontSize`)보다 **작게** 유지해 그룹 헤더 위계를 지킨다.
-    static let sectionFontSize: CGFloat = 13
-    /// 헤더 심볼 프레임(정사각형).
-    static let sectionSymbolLength: CGFloat = 15
-    /// 심볼 자체의 렌더 크기. 프레임(`sectionSymbolLength`)보다 작게 둬야 여백이 생겨 글자와 톤이 맞는다.
-    static let sectionSymbolPointSize: CGFloat = 13
+    /// 헤더 텍스트. **폴더 행(`nodeFontSize` = 13)보다 크다.**
+    ///
+    /// **macOS 관례와 반대라는 점을 알고 그렇게 뒀다.** 표준 사이드바는 그룹 헤더를 항목보다 작게
+    /// 그려 배경으로 물러나게 하지만, 이 앱은 Win10 탐색기를 지향하고(같은 파일 `TreeSectionCellView`
+    /// 주석 참조 — 헤더에 심볼을 두는 것도 같은 이유) 사용자가 "Favorites/Home/Volumes 자체의
+    /// 아이콘과 문자열을 키워 달라"고 명시적으로 요청했다(2026-08-18).
+    /// 헤더가 항목보다 커 보이는 것은 **버그가 아니라 확정된 선택**이니 되돌리지 말 것.
+    static let sectionFontSize: CGFloat = 15
+    /// 헤더 심볼 프레임(정사각형). 폴더 아이콘(`nodeIconLength` = 16)보다 커서 헤더가 먼저 읽힌다.
+    static let sectionSymbolLength: CGFloat = 17
+    /// 심볼 자체의 렌더 크기(`NSImage.SymbolConfiguration`의 pointSize).
+    ///
+    /// 프레임(`sectionSymbolLength`)보다 **작아야** 한다 — 같거나 크면 글리프가 프레임에 꽉 차
+    /// 라벨보다 무거워 보이고, 확대·축소 여지도 없어진다. 지금은 15/17로 2pt 여백을 둬
+    /// 라벨(15pt semibold)과 시각 무게를 맞춘다.
+    static let sectionSymbolPointSize: CGFloat = 15
     /// 헤더 앞 여백 / 심볼-라벨 간격 / 꼬리 여백.
     static let sectionLeading: CGFloat = 5
     static let sectionSpacing: CGFloat = 6
     static let sectionTrailing: CGFloat = 4
     /// 행 위아래 여백(각각).
     ///
-    /// **왜 이렇게 큰가**: 확대 전 사이드바는 `rowSizeStyle = .default`(시스템 소스리스트 기본값)로
-    /// 행 간격이 **32pt**였다(실측). 행 높이를 직접 정하는 순간 그 여백이 사라지므로, 내용만 키우고
-    /// 여백을 기본값으로 두면 글자는 커졌는데 줄 간격은 오히려 좁아져 더 답답해진다.
-    /// 그래서 이전 리듬(32pt)을 그대로 유지하도록 여백을 역산해 둔다.
-    static let sectionVerticalPadding: CGFloat = 8
+    /// 폴더 행이 22pt(우측 목록과 동일)이므로 헤더는 26pt가 된다 — 항목보다 확실히 높아 그룹 경계로
+    /// 읽히면서, 그 이상 키우면 헤더 텍스트가 위아래 가운데에서 붕 떠 자기 그룹과 멀어진다
+    /// (행 높이만 정할 수 있고 위/아래 여백을 따로 줄 수 없어서 커질수록 양쪽이 같이 벌어진다).
+    static let sectionVerticalPadding: CGFloat = 4
 
-    // MARK: 폴더 행
+    // MARK: 폴더 행 — 우측 목록과 **동일**하게 유지 (숫자를 따로 적지 않는다)
 
-    static let nodeFontSize: CGFloat = 15
-    /// 폴더/볼륨 아이콘 프레임(정사각형). `VolumeIconCache`가 만드는 이미지 크기와 **같아야** 한다 —
-    /// 이미지가 더 작으면 `.scaleProportionallyDown`이 확대를 하지 않아 프레임 안에서 작게 뜬다.
-    static let nodeIconLength: CGFloat = 18
+    /// 폴더 이름 텍스트. 목록 이름 컬럼과 **같은 값을 참조**한다(따로 적으면 어긋난다).
+    static let nodeFontSize: CGFloat = FileListMetrics.nameFontSize
+    /// 폴더/볼륨 아이콘 프레임(정사각형). `VolumeIconCache`와 `SidebarTreeBridge.folderIcon`이 만드는
+    /// **이미지 크기와 같아야 한다** — 이미지가 더 작으면 `.scaleProportionallyDown`이 확대를 하지
+    /// 않아 프레임 안에서 작게 뜬다. (프레임과 이미지가 둘 다 16인 지금은 맞아떨어진 상태이며,
+    /// 한쪽만 바꾸는 순간 다시 어긋난다 — 그래서 양쪽이 이 상수를 참조한다.)
+    static let nodeIconLength: CGFloat = FileListMetrics.iconLength
+    /// 트리는 여기에 계층 들여쓰기가 더 붙으므로 목록(4)보다 앞 여백이 작다.
     static let nodeLeading: CGFloat = 2
     static let nodeSpacing: CGFloat = 6
     static let nodeTrailing: CGFloat = 4
-    /// 확대 전 실측 행 간격(32pt)을 유지하기 위한 여백 — `sectionVerticalPadding` 주석 참조.
-    static let nodeVerticalPadding: CGFloat = 7
 
-    /// "Loading…" placeholder — 폴더 행과 같은 자리에 뜨므로 한 단계만 작게 둔다.
-    static let placeholderFontSize: CGFloat = 14
+    /// "Loading…" placeholder — 목록의 보조 텍스트와 같은 계열(폴더 행보다 한 단계 작게).
+    static let placeholderFontSize: CGFloat = FileListMetrics.secondaryFontSize
 
     // MARK: 파생 값
 
@@ -56,17 +89,27 @@ enum SidebarMetrics {
         ceil(font.ascender - font.descender + font.leading)
     }
 
-    /// 섹션 헤더 행 높이 — 심볼과 텍스트 중 큰 쪽을 담고 위아래 여백을 더한다.
-    static var sectionRowHeight: CGFloat {
-        max(sectionSymbolLength, lineHeight(of: sectionFont)) + sectionVerticalPadding * 2
+    /// 헤더 행이 담아야 하는 콘텐츠 높이 (심볼과 텍스트 중 큰 쪽).
+    static var sectionContentHeight: CGFloat {
+        max(sectionSymbolLength, lineHeight(of: sectionFont))
     }
 
-    /// 폴더/placeholder 행 높이. `rowSizeStyle = .default`(고정 높이)로는 확대된 내용을 담지 못해
-    /// 위아래가 잘리므로, 브릿지가 `outlineView(_:heightOfRowByItem:)`에서 이 값을 돌려준다.
-    static var nodeRowHeight: CGFloat {
+    /// 폴더/placeholder 행이 담아야 하는 콘텐츠 높이.
+    static var nodeContentHeight: CGFloat {
         max(nodeIconLength, lineHeight(of: nodeFont), lineHeight(of: placeholderFont))
-            + nodeVerticalPadding * 2
     }
+
+    /// 섹션 헤더 행 높이.
+    static var sectionRowHeight: CGFloat {
+        sectionContentHeight + sectionVerticalPadding * 2
+    }
+
+    /// 폴더/placeholder 행 높이 — **우측 목록과 같은 값**.
+    ///
+    /// `rowSizeStyle = .default`(시스템이 정하는 고정 높이)로 두면 헤더가 커진 뒤 잘리고, 반대로
+    /// 여기서 임의의 값을 만들면 좌우 pane의 행 리듬이 어긋난다. 그래서 브릿지가
+    /// `outlineView(_:heightOfRowByItem:)`으로 이 값을 돌려준다.
+    static var nodeRowHeight: CGFloat { FileListMetrics.rowHeight }
 }
 
 /// 이름 컬럼 셀 — 16pt 아이콘 + 꼬리 말줄임 텍스트 (UI설계 §4.1).
@@ -99,7 +142,7 @@ final class FileNameCellView: NSTableCellView {
         icon.imageScaling = .scaleProportionallyDown
 
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = .systemFont(ofSize: 13)
+        label.font = FileListMetrics.nameFont
         label.lineBreakMode = .byTruncatingTail
         label.cell?.truncatesLastVisibleLine = true
         label.allowsDefaultTighteningForTruncation = false
@@ -122,8 +165,8 @@ final class FileNameCellView: NSTableCellView {
         NSLayoutConstraint.activate([
             icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
             icon.centerYAnchor.constraint(equalTo: centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 16),
-            icon.heightAnchor.constraint(equalToConstant: 16),
+            icon.widthAnchor.constraint(equalToConstant: FileListMetrics.iconLength),
+            icon.heightAnchor.constraint(equalToConstant: FileListMetrics.iconLength),
 
             label.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 6),
             label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
@@ -201,7 +244,7 @@ final class FileTextCellView: NSTableCellView {
 
     private func setup() {
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = .systemFont(ofSize: 12)
+        label.font = FileListMetrics.secondaryFont
         label.lineBreakMode = .byTruncatingTail
         label.textColor = .secondaryLabelColor
 
@@ -223,6 +266,11 @@ final class FileTextCellView: NSTableCellView {
 }
 
 /// 트리 노드 셀 — 폴더 아이콘 + 이름.
+///
+/// 2026-08-18 — 크기는 **우측 목록 셀(`FileNameCellView`)과 동일**하다. 글자·아이콘뿐 아니라
+/// 행 높이까지 `FileListMetrics`를 경유해 같은 값을 쓴다(사용자 확정: "하위 폴더는 오른쪽창과
+/// 동일한 크기"). 이름 변경 규칙에 이어 **치수도** 목록과 한 몸으로 묶인 셈이다 —
+/// 한쪽만 키우고 싶다면 `SidebarMetrics`에서 참조를 끊는 것이 먼저다.
 final class TreeNodeCellView: NSTableCellView {
 
     static let identifier = NSUserInterfaceItemIdentifier("TreeNodeCell")
@@ -310,10 +358,17 @@ final class TreeNodeCellView: NSTableCellView {
 ///
 /// 2026-08-18 — 아이콘 슬롯 추가. Win10 탐색기의 사이드바 헤더를 지향하므로
 /// macOS 표준 사이드바(헤더에 아이콘 없음)와 달리 섹션마다 심볼을 하나 둔다.
-/// 아이콘은 라벨과 **같은 계열**(`SidebarMetrics.sectionSymbolPointSize` semibold,
-/// `secondaryLabelColor`)로 맞춰 톤이 튀지 않게 한다.
+/// 아이콘은 라벨과 **같은 계열**(현재 15pt semibold = `SidebarMetrics.sectionSymbolPointSize`,
+/// `secondaryLabelColor`)로 맞춰 심볼과 글자가 한 덩어리로 읽히게 한다.
 ///
-/// 헤더 텍스트는 폴더 행보다 **작게** 유지한다(13pt vs 15pt) — 같거나 크면 그룹 헤더로 읽히지 않는다.
+/// 2026-08-18(2차) — 헤더 확대. 크기 수치는 전부 `SidebarMetrics`가 소유하므로 여기에 다시 적지 않는다.
+/// 헤더 텍스트/심볼은 폴더 행보다 **크다**(15pt vs 13pt, 심볼 17 vs 아이콘 16).
+/// macOS 표준(헤더가 항목보다 작음)과 반대지만 의도된 선택이다 —
+/// 근거는 `SidebarMetrics.sectionFontSize` 주석 참조(사용자 확정). 되돌리지 말 것.
+///
+/// **이 셀의 크기가 화면에 반영되려면 섹션이 그룹 행이 아니어야 한다.**
+/// 그룹 행이면 AppKit이 여기서 지정한 폰트·심볼을 표준 헤더 크기로 덮어쓴다 —
+/// 자세한 근거와 실험 기록은 `SidebarTreeBridge`의 `isGroupItem` 주석에 있다.
 final class TreeSectionCellView: NSTableCellView {
 
     static let identifier = NSUserInterfaceItemIdentifier("TreeSectionCell")
@@ -338,6 +393,8 @@ final class TreeSectionCellView: NSTableCellView {
 
     private func setup() {
         label.translatesAutoresizingMaskIntoConstraints = false
+        // 이 폰트가 화면에 그대로 나오려면 이 셀이 **그룹 행이 아니어야** 한다 —
+        // `SidebarTreeBridge`의 `isGroupItem` 주석 참조(AppKit이 그룹 행 폰트를 강제로 덮어쓴다).
         label.font = SidebarMetrics.sectionFont
         label.textColor = .secondaryLabelColor
 
@@ -404,7 +461,9 @@ final class TreePlaceholderCellView: NSTableCellView {
 
     private func setup() {
         label.translatesAutoresizingMaskIntoConstraints = false
-        // 폴더 행과 같은 자리에 뜨므로 트리 확대에 맞춰 함께 키운다(한 단계 작게 유지 — 보조 문구).
+        // 폴더 행과 같은 자리·같은 높이(22pt)의 행에 뜨는 보조 문구다.
+        // 폴더 행이 우측 목록과 같은 크기로 되돌아갔으므로(2026-08-18) 이것도 목록 보조 텍스트와
+        // 같은 계열로 맞춘다 — 폴더 행보다 한 단계 작다.
         label.font = SidebarMetrics.placeholderFont
         label.textColor = .tertiaryLabelColor
         label.stringValue = "Loading…"

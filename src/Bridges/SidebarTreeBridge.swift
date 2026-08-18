@@ -79,13 +79,16 @@ struct SidebarTreeBridge: NSViewRepresentable {
         let outlineView = KeyRoutingOutlineView()
         outlineView.style = .sourceList
         outlineView.headerView = nil
-        // 2026-08-18 사이드바 확대 — `.default`는 시스템이 정한 **고정** 행 높이라 키운 셀 내용이
-        // 위아래로 잘린다. `.custom`으로 두어야 아래 `heightOfRowByItem` 델리게이트가 반영된다
+        // 2026-08-18 사이드바 확대 — `.default`는 시스템이 정한 **고정** 행 높이라 키운 헤더가
+        // 위아래로 잘리고, 폴더 행도 우측 목록(22pt)과 다른 리듬이 된다. `.custom`으로 두어야
+        // 아래 `heightOfRowByItem` 델리게이트가 반영된다
         // (`.custom` 이외의 값에서는 AppKit이 델리게이트 높이를 무시한다).
         outlineView.rowSizeStyle = .custom
+        // 그룹 행을 쓰지 않으므로(`isGroupItem` 주석 참조) 부유 헤더 옵션도 의미가 없지만,
+        // 기본값이 바뀌더라도 헤더가 스크롤 중 떠 있지 않도록 명시해 둔다.
         outlineView.floatsGroupRows = false
-        // 아이콘이 16 → 18로 커진 만큼 계층 들여쓰기도 함께 넓혀 깊이 감각을 유지한다.
-        outlineView.indentationPerLevel = 16
+        // 폴더 아이콘이 우측 목록과 같은 16pt이므로 들여쓰기도 기존 값을 유지한다.
+        outlineView.indentationPerLevel = 14
         outlineView.autosaveExpandedItems = false
         outlineView.allowsMultipleSelection = false
         outlineView.allowsEmptySelection = true
@@ -202,7 +205,8 @@ struct SidebarTreeBridge: NSViewRepresentable {
             let source = NSWorkspace.shared.icon(for: .folder)
             let image = (source.copy() as? NSImage) ?? source
             // 셀 아이콘 프레임과 **같은** 크기여야 한다 — 더 작으면 `.scaleProportionallyDown`이
-            // 확대를 하지 않아 커진 프레임 안에서 아이콘만 작게 남는다.
+            // 확대를 하지 않아 프레임 안에서 아이콘만 작게 남는다(`VolumeIconCache`와 같은 규칙).
+            // 숫자를 적지 않고 상수를 참조해 프레임 변경에 자동으로 따라가게 한다.
             image.size = NSSize(width: SidebarMetrics.nodeIconLength, height: SidebarMetrics.nodeIconLength)
             return image
         }()
@@ -265,14 +269,34 @@ struct SidebarTreeBridge: NSViewRepresentable {
 
         // MARK: Delegate
 
+        /// 섹션을 **그룹 행으로 선언하지 않는다** (2026-08-18 — 헤더 확대 요청 때문에 뒤집힌 결정).
+        ///
+        /// `style = .sourceList`에서 `isGroupItem == true`인 행은 AppKit이 셀의 텍스트 폰트와
+        /// 심볼 크기를 **표준 사이드바 헤더 크기로 강제**한다. 우리가 셀에 지정한 값은 화면에 반영되지
+        /// 않는다. 다음을 모두 시도했고 전부 무력화되는 것을 실행 화면에서 확인했다:
+        /// - `setup()`에서 폰트 지정 / `viewWillDraw()`에서 그리기 직전 재지정
+        /// - `NSTextField.font` 세터 차단 / `NSTextFieldCell.font` 세터 차단
+        /// - `NSImageView.image`·`symbolConfiguration` 세터 차단
+        ///
+        /// **판별 방법**(회귀 시 같은 방법으로 재확인할 것): 헤더 폰트를 24pt까지 키워도 글자 크기가
+        /// 전혀 변하지 않는 반면, `heightOfRowByItem`이 정하는 **행 높이는 정상 반영**된다.
+        /// 즉 "바이너리가 낡았나?"가 아니라 AppKit이 폰트만 덮어쓰는 것이다.
+        /// 프로퍼티를 다시 읽으면 우리 값이 그대로라 **단위 테스트로는 잡히지 않는다** — 화면에서만 보인다.
+        ///
+        /// 그룹 행을 포기하면서 잃는 것/얻는 것:
+        /// - 잃음: 그룹 전용 배경, 헤더 위 자동 여백, hover 시 "Show/Hide" 버튼
+        /// - 얻음: 헤더 폰트/심볼 크기의 **완전한 통제**(사용자 요청의 핵심), 디스클로저 삼각형으로
+        ///   섹션 접기/펼치기 유지(Win10 탐색기의 섹션도 같은 방식이라 지향점과도 맞는다)
+        /// - 선택 불가는 그룹 행이 아니라 `shouldSelectItem`이 보장하므로 영향 없다.
         func outlineView(_ outlineView: NSOutlineView, isGroupItem item: Any) -> Bool {
-            (item as? TreeNode)?.kind == .section
+            false
         }
 
-        /// 행 높이 (2026-08-18 사이드바 확대).
+        /// 행 높이 (2026-08-18 사이드바 확대 — 헤더 26pt / 폴더 행 22pt).
         ///
-        /// 섹션 헤더와 폴더 행은 폰트·아이콘 크기가 달라 필요한 높이도 다르다. 값 자체는
-        /// 셀 레이아웃과 어긋나지 않도록 `SidebarMetrics`가 단독으로 소유하고 여기서는 분기만 한다.
+        /// 헤더는 키운 심볼·텍스트를 담아야 하고, 폴더 행은 **우측 목록과 같은 22pt**여야 하므로
+        /// 종류별로 값이 다르다. 값 자체는 셀 레이아웃과 어긋나지 않도록 `SidebarMetrics`가 단독으로
+        /// 소유하고(폴더 행은 다시 `FileListMetrics`를 참조한다) 여기서는 분기만 한다.
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
             rowHeight(for: item)
         }

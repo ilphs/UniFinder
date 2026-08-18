@@ -47,8 +47,10 @@ final class VolumeIconCache {
 
         lookupCount += 1
         guard let image = lookup(PathKey.exactPath(url)) else { return nil }
-        // 이 캐시의 유일한 소비자는 사이드바 트리 셀이다 — 셀 아이콘 프레임과 크기를 묶어 둔다.
-        // 프레임보다 작으면 `.scaleProportionallyDown`이 확대하지 않아 볼륨만 작게 뜬다.
+        // 이 캐시의 유일한 소비자는 사이드바 트리 셀이다 — 숫자를 적지 않고 셀 아이콘 프레임
+        // (`SidebarMetrics.nodeIconLength`)에 묶어 둔다. 프레임보다 작은 이미지는
+        // `.scaleProportionallyDown`이 **확대하지 않으므로** 볼륨 아이콘만 작게 뜬다.
+        // 지금은 프레임과 이미지가 둘 다 16이라 문제가 없지만, 프레임만 키우면 즉시 재발한다.
         image.size = NSSize(width: SidebarMetrics.nodeIconLength, height: SidebarMetrics.nodeIconLength)
         cache[key] = image
         return image

@@ -156,7 +156,9 @@ struct FileListBridge: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let tableView = KeyRoutingTableView()
         tableView.style = .fullWidth
-        tableView.rowHeight = 22 // UI설계 §4.1
+        // UI설계 §4.1. 사이드바 폴더 행(`SidebarMetrics.nodeRowHeight`)이 이 값을 **참조**하므로
+        // 여기를 바꾸면 좌측 트리의 행 리듬도 함께 따라온다("오른쪽 창과 동일" — 2026-08-18).
+        tableView.rowHeight = FileListMetrics.rowHeight
         tableView.usesAlternatingRowBackgroundColors = true
         tableView.allowsMultipleSelection = true
         tableView.allowsEmptySelection = true
