@@ -24,10 +24,12 @@ xcuserdata/
 
 # 로컬 설치 빌드 산출물
 build-release/
+build-run/
 
 # 아이콘 중간 산출물 (make-icon.sh가 재생성)
 resources/UniFinder.iconset/
 resources/icon-1024.png
 resources/icon-source.png
 resources/icon-1024-tuned.png
+resources/icon-1024-flat.png
 resources/icon-tuned.png

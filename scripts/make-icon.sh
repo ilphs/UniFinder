@@ -9,7 +9,8 @@
 # 처리 과정:
 #   1. 바깥 배경을 투명화 (flood fill — 아이콘 내부의 밝은 색은 보존)
 #   2. macOS 표준 그리드로 정규화 (1024 캔버스 안에 824 아이콘, 여백 100)
-#   3. .iconset 10종 생성 후 iconutil로 .icns 컴파일
+#   3. 팔레트 보정 + 글리프 평탄화 (NO_TUNE=1로 건너뜀)
+#   4. .iconset 10종 생성 → .icns 컴파일 + 에셋 카탈로그 동기화
 #
 # 배경이 이미 투명한 PNG를 넣으면 1단계는 아무 영향이 없다.
 
@@ -21,6 +22,7 @@ SRC="${1:-resources/icon-source.png}"
 OUT_ICNS="resources/UniFinder.icns"
 NORMALIZED="resources/icon-1024.png"
 ICONSET="resources/UniFinder.iconset"
+APPICONSET="resources/Assets.xcassets/AppIcon.appiconset"
 
 info() { printf '\033[1;34m==>\033[0m %s\n' "$1"; }
 fail() { printf '\033[1;31m[x]\033[0m %s\n' "$1" >&2; exit 1; }
@@ -74,6 +76,11 @@ else
     TUNED="resources/icon-1024-tuned.png"
     python3 scripts/tune-icon-palette.py "$NORMALIZED" "$TUNED" | sed 's/^/  /'
     mv "$TUNED" "$NORMALIZED"
+
+    info "글리프 평탄화 — 네온 외곽선 제거, 'f'를 그라디언트로 채움"
+    FLAT="resources/icon-1024-flat.png"
+    python3 scripts/flatten-icon-glyph.py "$NORMALIZED" "$FLAT" | sed 's/^/  /'
+    mv "$FLAT" "$NORMALIZED"
 fi
 
 info "iconset 생성 (10종)"
@@ -91,6 +98,9 @@ cp "$NORMALIZED" "$ICONSET/icon_512x512@2x.png"
 
 info "icns 컴파일"
 iconutil -c icns "$ICONSET" -o "$OUT_ICNS"
+
+info "에셋 카탈로그 동기화 ($APPICONSET)"
+cp "$ICONSET"/icon_*.png "$APPICONSET/"
 
 printf '\033[1;34m==>\033[0m 완료: %s (%s)\n' "$OUT_ICNS" "$(du -h "$OUT_ICNS" | cut -f1)"
 echo
