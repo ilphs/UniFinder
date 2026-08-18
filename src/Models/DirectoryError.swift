@@ -15,19 +15,19 @@ enum DirectoryError: Error, Equatable, Sendable {
     /// empty-state 제목
     var title: String {
         switch self {
-        case .accessDenied: return "접근 권한 없음"
-        case .notFound: return "폴더를 찾을 수 없음"
-        case .notADirectory: return "폴더가 아님"
-        case .unknown: return "폴더를 열 수 없음"
+        case .accessDenied: return "No Access"
+        case .notFound: return "Folder Not Found"
+        case .notADirectory: return "Not a Folder"
+        case .unknown: return "Can't Open Folder"
         }
     }
 
     /// empty-state 본문 (UI설계 §4.2 문구)
     var message: String {
         switch self {
-        case .accessDenied: return "이 폴더에 접근할 권한이 없습니다."
-        case .notFound: return "이 폴더는 더 이상 존재하지 않습니다."
-        case .notADirectory: return "선택한 항목은 폴더가 아닙니다."
+        case .accessDenied: return "You don't have permission to open this folder."
+        case .notFound: return "This folder no longer exists."
+        case .notADirectory: return "The selected item isn't a folder."
         case .unknown(let detail): return detail
         }
     }

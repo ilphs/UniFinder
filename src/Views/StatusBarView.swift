@@ -38,7 +38,7 @@ struct StatusBarView: View {
 
     private var summaryText: String {
         let directory = model.directory
-        let total = "항목 \(directory.itemCount)개"
+        let total = directory.itemCount == 1 ? "1 item" : "\(directory.itemCount) items"
 
         let selected = directory.selectedItems
         guard !selected.isEmpty else { return total }
@@ -47,13 +47,15 @@ struct StatusBarView: View {
         let folderCount = selected.count - files.count
         let byteSum = files.reduce(Int64(0)) { $0 + ($1.size ?? 0) }
 
-        var detail = "\(selected.count)개 선택됨"
+        // 폴더는 크기를 계산하지 않으므로(설계서 §3.2) 개수만 따로 덧붙인다.
+        let folders = folderCount == 1 ? "1 folder" : "\(folderCount) folders"
+        var detail = "\(selected.count) selected"
         if !files.isEmpty && folderCount > 0 {
-            detail += " (\(Formatters.displayByteCount(byteSum)) + 폴더 \(folderCount)개)"
+            detail += " (\(Formatters.displayByteCount(byteSum)) + \(folders))"
         } else if !files.isEmpty {
             detail += " (\(Formatters.displayByteCount(byteSum)))"
         } else {
-            detail += " (폴더 \(folderCount)개)"
+            detail += " (\(folders))"
         }
 
         return "\(total) | \(detail)"

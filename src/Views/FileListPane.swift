@@ -43,6 +43,8 @@ struct FileListPane: View {
                 onDelete: { model.trashSelection() },
                 onNewFolder: { model.createFolderInCurrentDirectory() },
                 onRevealInFinder: { model.revealInFinder() },
+                isFavorite: { model.isFavorite($0) },
+                onToggleFavorite: { model.toggleFavorite($0) },
                 onBeginRename: { model.requestRename($0) },
                 onValidateRename: { model.validateRename($0, to: $1) },
                 onCommitRename: { model.rename($0, to: $1) },
@@ -57,7 +59,7 @@ struct FileListPane: View {
     @ViewBuilder
     private var overlay: some View {
         if let error = model.directory.error {
-            // 접근 불가 화면에만 [권한 설정 안내] 버튼이 있다 — 그 버튼만 클릭을 받는다.
+            // 접근 불가 화면에만 [How to Grant Access] 버튼이 있다 — 그 버튼만 클릭을 받는다.
             emptyState(interactive: error == .accessDenied) {
                 VStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle")
@@ -69,13 +71,13 @@ struct FileListPane: View {
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                     if error == .accessDenied {
-                        Text("시스템 설정 > 개인정보 보호 및 보안 > 전체 디스크 접근에서 UniFinder를 허용하세요.")
+                        Text("Allow UniFinder in System Settings > Privacy & Security > Full Disk Access.")
                             .font(.system(size: 11))
                             .foregroundStyle(.tertiary)
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: 320)
                         // M1은 문구만 있었고, M3 T5에서 온보딩 시트(딥링크 포함)로 연결한다.
-                        Button("권한 설정 안내") { model.fullDiskAccess.present() }
+                        Button("How to Grant Access") { model.fullDiskAccess.present() }
                             .padding(.top, 4)
                     }
                 }
@@ -87,7 +89,7 @@ struct FileListPane: View {
             }
         } else if model.directory.items.isEmpty {
             emptyState {
-                Text("이 폴더는 비어 있습니다.")
+                Text("This folder is empty.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
@@ -127,6 +129,7 @@ struct SidebarPane: View {
         SidebarTreeBridge(
             model: model.tree,
             revision: model.tree.revision,
+            sectionsRevision: model.tree.sectionsRevision,
             focusBroker: model.focusBroker,
             canPaste: model.canPaste,
             renameRequest: model.renameRequest,
@@ -144,7 +147,9 @@ struct SidebarPane: View {
             onBeginRename: { model.requestRename($0) },
             onValidateRename: { model.validateRename($0, to: $1) },
             onCommitRename: { model.rename($0, to: $1) },
-            onRenamingChanged: { model.isRenaming = $0 }
+            onRenamingChanged: { model.isRenaming = $0 },
+            isFavorite: { model.isFavorite($0) },
+            onToggleFavorite: { model.toggleFavorite($0) }
         )
         .frame(minWidth: 180, idealWidth: model.settings.sidebarWidth, maxWidth: 400)
         .background(Color(nsColor: .windowBackgroundColor))

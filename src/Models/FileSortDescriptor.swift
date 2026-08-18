@@ -12,10 +12,10 @@ enum SortKey: String, CaseIterable, Sendable, Codable {
 
     var localizedTitle: String {
         switch self {
-        case .name: return "이름"
-        case .date: return "수정일"
-        case .kind: return "종류"
-        case .size: return "크기"
+        case .name: return "Name"
+        case .date: return "Date Modified"
+        case .kind: return "Kind"
+        case .size: return "Size"
         }
     }
 }

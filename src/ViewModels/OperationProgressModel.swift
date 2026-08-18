@@ -49,7 +49,7 @@ final class OperationProgressModel {
     /// 항목 수 기준 진행 문구 (B19 — 바이트·속도는 Phase 2).
     var itemCountText: String {
         guard total > 0 else { return "" }
-        return "\(min(completed, total))/\(total) 항목"
+        return "\(min(completed, total))/\(total) items"
     }
 
     /// 0~1. 총 개수를 모르면 `nil`(불확정 막대).

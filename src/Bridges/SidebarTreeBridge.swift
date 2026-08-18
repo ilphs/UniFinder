@@ -36,6 +36,9 @@ struct SidebarTreeBridge: NSViewRepresentable {
     let model: TreeModel
     /// `reloadData` 필요 여부 판단용 (TreeModel.revision)
     let revision: Int
+    /// 볼륨 아이콘 캐시 무효화 판단용 (TreeModel.sectionsRevision — 2026-08-18 C단계).
+    /// `revision`은 노드 확장마다 올라가므로 여기에 캐시를 묶으면 스크롤 중 캐시가 통째로 버려진다.
+    var sectionsRevision: Int = 0
     let focusBroker: FocusBroker
     /// 붙여넣기 메뉴 활성 조건 (UI설계 §6).
     var canPaste: Bool = false
@@ -60,6 +63,10 @@ struct SidebarTreeBridge: NSViewRepresentable {
     var onValidateRename: (URL, String) -> String? = { _, _ in nil }
     var onCommitRename: (URL, String) -> Void = { _, _ in }
     var onRenamingChanged: (Bool) -> Void = { _ in }
+
+    // 2026-08-18 — 즐겨찾기 등록/해제 (트리 컨텍스트 메뉴 진입점).
+    var isFavorite: (URL) -> Bool = { _ in false }
+    var onToggleFavorite: (URL) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -119,6 +126,10 @@ struct SidebarTreeBridge: NSViewRepresentable {
         guard let outlineView = scrollView.documentView as? KeyRoutingOutlineView else { return }
         context.coordinator.parent = self
 
+        // 볼륨 구성/이름이 바뀐 경우에만 아이콘 캐시를 버린다 (마운트·언마운트·볼륨 rename은
+        // 전부 `TreeModel.rebuildSections()`를 거치므로 이 카운터 하나로 세 경우가 모두 잡힌다).
+        context.coordinator.invalidateVolumeIconsIfNeeded(sectionsRevision: sectionsRevision)
+
         if context.coordinator.appliedRevision != revision {
             context.coordinator.appliedRevision = revision
             outlineView.reloadData()
@@ -133,11 +144,14 @@ struct SidebarTreeBridge: NSViewRepresentable {
         }
 
         // 인라인 이름 변경 요청 소비 (1회성). 트리에 없는 경로면 조용히 무시된다.
-        if let request = renameRequest, context.coordinator.appliedRenameToken != request.token {
-            context.coordinator.appliedRenameToken = request.token
+        //
+        // **토큰은 편집에 실제로 진입했을 때만 소비한다** (M2 백로그 — 목록 브릿지와 같은 규칙).
+        // 예전에는 `beginRename` 호출 **전에** 소비해서, 노드가 아직 트리에 없거나 셀이 윈도우에
+        // 붙기 전이면(새 폴더 생성 직후) 재시도 기회 없이 요청이 사라졌다.
+        if let request = renameRequest, context.coordinator.scheduleRenameIfNeeded(request) {
             let coordinator = context.coordinator
             Task { @MainActor in
-                coordinator.beginRename(at: request.url)
+                coordinator.applyRenameRequest(request)
             }
         }
     }
@@ -150,7 +164,14 @@ struct SidebarTreeBridge: NSViewRepresentable {
         var parent: SidebarTreeBridge
         weak var outlineView: KeyRoutingOutlineView?
         var appliedRevision: Int = -1
-        var appliedRenameToken: Int = -1
+        /// **편집에 실제로 진입한** rename 토큰. 진입 실패는 소비로 치지 않는다(재시도 대상 — M2 백로그).
+        private(set) var appliedRenameToken: Int = -1
+        /// 다음 런루프에 이미 예약된 토큰 — 같은 요청이 여러 번 스케줄되지 않게 한다.
+        private(set) var scheduledRenameToken: Int = -1
+        /// 같은 토큰의 재시도 횟수. 트리에 영영 나타나지 않는 대상(파일 rename 요청 등)에 대한
+        /// 무한 재시도를 막는 상한이다.
+        private var renameAttemptCount = 0
+        static let maxRenameAttempts = 50
 
         /// 프로그램에 의한 선택 변경이 다시 내비게이션을 유발하지 않도록 하는 가드.
         private var isApplyingReveal = false
@@ -165,6 +186,10 @@ struct SidebarTreeBridge: NSViewRepresentable {
         /// (선택이 그 사이 바뀌어도 대상이 흔들리지 않도록 — m2-impl T0 "호출 시점 스냅샷").
         private var contextNode: TreeNode?
 
+        /// 볼륨 노드 전용 아이콘 캐시 (2026-08-18). 무효화는 `sectionsRevision` 변화 시에만.
+        let volumeIconCache = VolumeIconCache()
+        private var appliedSectionsRevision: Int = -1
+
         private let folderIcon: NSImage = {
             // NSWorkspace가 돌려주는 공유 인스턴스를 직접 변형하지 않도록 사본을 만든다.
             let source = NSWorkspace.shared.icon(for: .folder)
@@ -176,6 +201,13 @@ struct SidebarTreeBridge: NSViewRepresentable {
         init(_ parent: SidebarTreeBridge) {
             self.parent = parent
             super.init()
+        }
+
+        /// 섹션 재구성이 있었으면 볼륨 아이콘 캐시를 비운다.
+        func invalidateVolumeIconsIfNeeded(sectionsRevision: Int) {
+            guard appliedSectionsRevision != sectionsRevision else { return }
+            appliedSectionsRevision = sectionsRevision
+            volumeIconCache.invalidate()
         }
 
         // MARK: DataSource
@@ -240,14 +272,17 @@ struct SidebarTreeBridge: NSViewRepresentable {
                 let cell = outlineView.makeView(withIdentifier: TreeSectionCellView.identifier, owner: nil) as? TreeSectionCellView
                     ?? TreeSectionCellView(frame: .zero)
                 cell.identifier = TreeSectionCellView.identifier
-                cell.configure(title: node.name)
+                // 심볼은 **섹션 이름 문자열이 아니라** `sectionKind`에서 온다 (헤더 문구가 바뀌어도 안전).
+                cell.configure(title: node.name, symbolName: node.sectionKind?.symbolName)
                 return cell
 
             case .folder:
                 let cell = outlineView.makeView(withIdentifier: TreeNodeCellView.identifier, owner: nil) as? TreeNodeCellView
                     ?? TreeNodeCellView(frame: .zero)
                 cell.identifier = TreeNodeCellView.identifier
-                cell.configure(node: node, folderIcon: folderIcon)
+                // 볼륨 루트만 실제 디스크 아이콘을 쓴다. 조회 실패 시 공용 폴더 아이콘으로 되돌린다.
+                let icon = node.isVolumeRoot ? (volumeIconCache.icon(for: node.url) ?? folderIcon) : folderIcon
+                cell.configure(node: node, folderIcon: icon)
                 wireRenameCallbacks(on: cell)
                 return cell
 
@@ -411,18 +446,49 @@ struct SidebarTreeBridge: NSViewRepresentable {
             }
         }
 
-        func beginRename(at url: URL) {
-            guard let outlineView else { return }
-            guard let node = parent.model.node(for: url), !parent.model.isProtectedNode(node) else { return }
+        /// 이 요청을 다음 런루프에 예약해야 하는지. 예약하기로 했으면 그 사실을 기록한다.
+        func scheduleRenameIfNeeded(_ request: AppModel.RenameRequest) -> Bool {
+            guard appliedRenameToken != request.token, scheduledRenameToken != request.token else { return false }
+            scheduledRenameToken = request.token
+            return true
+        }
+
+        /// 예약된 rename 요청을 실행한다. **성공했을 때만** 토큰을 소비한다 (목록 브릿지와 동일 규칙).
+        /// - Returns: 편집에 진입했으면 `true`
+        @discardableResult
+        func applyRenameRequest(_ request: AppModel.RenameRequest) -> Bool {
+            scheduledRenameToken = -1
+            if beginRename(at: request.url) {
+                appliedRenameToken = request.token
+                renameAttemptCount = 0
+                return true
+            }
+            // 실패 — 토큰을 남겨 다음 `updateNSView`(노드 확장/로드 완료 등)에서 다시 시도한다.
+            renameAttemptCount += 1
+            if renameAttemptCount >= Self.maxRenameAttempts {
+                appliedRenameToken = request.token
+                renameAttemptCount = 0
+            }
+            return false
+        }
+
+        /// - Returns: 해당 노드의 셀이 **실제로** 편집에 진입했으면 `true`.
+        @discardableResult
+        func beginRename(at url: URL) -> Bool {
+            guard let outlineView else { return false }
+            guard let node = parent.model.node(for: url), !parent.model.isProtectedNode(node) else { return false }
             let row = outlineView.row(forItem: node)
-            guard row >= 0 else { return }
+            guard row >= 0 else { return false }
 
             outlineView.scrollRowToVisible(row)
             guard let cell = outlineView.view(atColumn: 0, row: row, makeIfNecessary: true) as? TreeNodeCellView
-            else { return }
+            else { return false }
 
+            // 목록 브릿지와 같은 순서 — 진입에 성공한 뒤에만 편집 중 상태를 세운다 (M2 백로그).
+            // 먼저 세우면 편집 중이 아닌데 `AppModel.isRenaming`이 고착된다.
+            guard cell.beginRename() else { return false }
             parent.onRenamingChanged(true)
-            cell.beginRename()
+            return true
         }
 
         /// 현재 선택된 폴더 노드 (섹션/placeholder는 제외).
@@ -447,15 +513,27 @@ struct SidebarTreeBridge: NSViewRepresentable {
 
             let menu = NSMenu()
             menu.autoenablesItems = false
-            menu.addItem(makeItem("열기", #selector(menuOpen), key: "", modifiers: []))
+            menu.addItem(makeItem("Open", #selector(menuOpen), key: "", modifiers: []))
             menu.addItem(.separator())
-            menu.addItem(makeItem("복사", #selector(menuCopy), key: "c", modifiers: .command))
-            menu.addItem(makeItem("붙여넣기", #selector(menuPaste), key: "v", modifiers: .command, enabled: parent.canPaste))
+            menu.addItem(makeItem("Copy", #selector(menuCopy), key: "c", modifiers: .command))
+            menu.addItem(makeItem("Paste", #selector(menuPaste), key: "v", modifiers: .command, enabled: parent.canPaste))
             menu.addItem(.separator())
-            menu.addItem(makeItem("이름 변경", #selector(menuRename), key: String(KeyScalar.f2), modifiers: [], enabled: !isProtected))
-            menu.addItem(makeItem("휴지통으로 이동", #selector(menuDelete), key: "\u{8}", modifiers: .command, enabled: !isProtected))
+            menu.addItem(makeItem("Rename", #selector(menuRename), key: String(KeyScalar.f2), modifiers: [], enabled: !isProtected))
+            menu.addItem(makeItem("Move to Trash", #selector(menuDelete), key: "\u{8}", modifiers: .command, enabled: !isProtected))
             menu.addItem(.separator())
-            menu.addItem(makeItem("새 폴더", #selector(menuNewFolder), key: "n", modifiers: [.command, .shift]))
+            menu.addItem(makeItem("New Folder", #selector(menuNewFolder), key: "n", modifiers: [.command, .shift]))
+            menu.addItem(.separator())
+
+            // 즐겨찾기 토글 (2026-08-18). **위험 대상 가드와 무관하다** —
+            // 즐겨찾기 해제는 파일시스템을 건드리지 않고 목록에서만 빼는 별개 개념이라,
+            // `isProtected`(rename/삭제 금지)로 비활성화하면 즐겨찾기 항목을 영영 못 지운다.
+            // 트리 노드는 전부 폴더(`kind == .folder` 가드)이므로 파일 비활성 조건은 필요 없다.
+            menu.addItem(makeItem(
+                parent.isFavorite(node.url) ? "Remove from Favorites" : "Add to Favorites",
+                #selector(menuToggleFavorite),
+                key: "t",
+                modifiers: [.control, .command]
+            ))
             return menu
         }
 
@@ -501,6 +579,11 @@ struct SidebarTreeBridge: NSViewRepresentable {
         @objc private func menuNewFolder() {
             guard let node = contextNode else { return }
             parent.onNewFolder(node.url)
+        }
+
+        @objc private func menuToggleFavorite() {
+            guard let node = contextNode else { return }
+            parent.onToggleFavorite(node.url)
         }
 
         // MARK: 키보드 (architect B4)

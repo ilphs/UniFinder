@@ -93,9 +93,16 @@ final class FileNameCellView: NSTableCellView {
     private(set) var representedURL: URL?
 
     /// 인라인 이름 변경 시작 (F2 / 컨텍스트 메뉴 / 새 폴더 생성 직후).
-    func beginRename() {
-        guard let representedURL else { return }
+    ///
+    /// - Returns: **실제로** 편집에 진입했으면 `true`.
+    ///   `InlineNameEditor.begin`은 셀이 아직 윈도우에 붙기 전이면 조용히 되돌아가므로(`field.window == nil`),
+    ///   호출자가 성공을 단정하면 `isRenaming`이 편집 중이 아닌데도 고착되고 rename 토큰이 조기 소비된다
+    ///   (M2 백로그 — 재시도 경로가 죽는다).
+    @discardableResult
+    func beginRename() -> Bool {
+        guard let representedURL else { return false }
         nameEditor.begin(target: representedURL)
+        return nameEditor.isEditing
     }
 
     /// `NSTableView`가 셀을 재사용하기 직전에 부른다. `configure`와 이중으로 방어한다.
@@ -214,9 +221,12 @@ final class TreeNodeCellView: NSTableCellView {
         alphaValue = node.isSymlink ? 0.9 : 1.0
     }
 
-    func beginRename() {
-        guard let representedURL else { return }
+    /// 목록 셀과 동일 규칙 — 진입 성공 여부를 반드시 돌려준다 (M2 백로그).
+    @discardableResult
+    func beginRename() -> Bool {
+        guard let representedURL else { return false }
         nameEditor.begin(target: representedURL)
+        return nameEditor.isEditing
     }
 
     override func prepareForReuse() {
@@ -226,11 +236,20 @@ final class TreeNodeCellView: NSTableCellView {
 }
 
 /// 트리 섹션 헤더 셀.
+///
+/// 2026-08-18 — 아이콘 슬롯 추가. Win10 탐색기의 사이드바 헤더를 지향하므로
+/// macOS 표준 사이드바(헤더에 아이콘 없음)와 달리 섹션마다 심볼을 하나 둔다.
+/// 아이콘은 라벨과 **같은 계열**(11pt semibold, `secondaryLabelColor`)로 맞춰 톤이 튀지 않게 한다.
 final class TreeSectionCellView: NSTableCellView {
 
     static let identifier = NSUserInterfaceItemIdentifier("TreeSectionCell")
 
     private let label = NSTextField(labelWithString: "")
+    private let symbolView = NSImageView()
+
+    /// 마지막으로 적용한 심볼 이름. 셀 재사용 시 같은 심볼을 다시 만들지 않기 위한 가드다
+    /// (`NSImage(systemSymbolName:)`는 매 호출마다 새 이미지를 만든다).
+    private var appliedSymbolName: String?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -248,22 +267,47 @@ final class TreeSectionCellView: NSTableCellView {
         label.font = .systemFont(ofSize: 11, weight: .semibold)
         label.textColor = .secondaryLabelColor
 
+        symbolView.translatesAutoresizingMaskIntoConstraints = false
+        symbolView.imageScaling = .scaleProportionallyUpOrDown
+        // 템플릿 이미지 + tint로 라벨과 같은 색을 쓴다(다크/라이트 자동 대응).
+        symbolView.contentTintColor = .secondaryLabelColor
+
+        addSubview(symbolView)
         addSubview(label)
         textField = label
+        imageView = symbolView
 
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            symbolView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            symbolView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            symbolView.widthAnchor.constraint(equalToConstant: 13),
+            symbolView.heightAnchor.constraint(equalToConstant: 13),
+
+            label.leadingAnchor.constraint(equalTo: symbolView.trailingAnchor, constant: 5),
             label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
 
-    func configure(title: String) {
+    /// - Parameter symbolName: SF Symbols 이름. `nil`이면 아이콘 자리를 비운다.
+    ///   **섹션 이름 문자열이 아니라 `TreeNode.SectionKind`에서 온 값**이어야 한다(A단계 영어화 대비).
+    func configure(title: String, symbolName: String?) {
         label.stringValue = title
+
+        guard appliedSymbolName != symbolName else { return }
+        appliedSymbolName = symbolName
+
+        guard let symbolName else {
+            symbolView.image = nil
+            return
+        }
+        let configuration = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+        symbolView.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: title)?
+            .withSymbolConfiguration(configuration)
     }
 }
 
-/// 트리 placeholder 셀 ("불러오는 중…").
+/// 트리 placeholder 셀 ("Loading…").
 final class TreePlaceholderCellView: NSTableCellView {
 
     static let identifier = NSUserInterfaceItemIdentifier("TreePlaceholderCell")
@@ -285,7 +329,7 @@ final class TreePlaceholderCellView: NSTableCellView {
         label.translatesAutoresizingMaskIntoConstraints = false
         label.font = .systemFont(ofSize: 12)
         label.textColor = .tertiaryLabelColor
-        label.stringValue = "불러오는 중…"
+        label.stringValue = "Loading…"
 
         addSubview(label)
         textField = label

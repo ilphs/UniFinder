@@ -48,7 +48,7 @@ struct BreadcrumbBar: View {
     // MARK: - 편집 모드
 
     private var editor: some View {
-        TextField("경로 입력", text: $editingText)
+        TextField("Enter path", text: $editingText)
             .textFieldStyle(.roundedBorder)
             .font(.system(size: 12))
             .focused($isFieldFocused)

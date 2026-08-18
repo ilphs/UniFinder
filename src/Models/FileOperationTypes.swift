@@ -11,21 +11,34 @@ enum FileOperationKind: String, Sendable, Equatable {
     /// 상태바 미니 표시 문구 (UI설계 §5). 진행률 시트 본체는 M3.
     var progressLabel: String {
         switch self {
-        case .copy: return "복사 중…"
-        case .move: return "이동 중…"
-        case .trash: return "휴지통으로 이동 중…"
-        case .rename: return "이름 변경 중…"
-        case .createFolder: return "폴더 만드는 중…"
+        case .copy: return "Copying…"
+        case .move: return "Moving…"
+        case .trash: return "Moving to Trash…"
+        case .rename: return "Renaming…"
+        case .createFolder: return "Creating Folder…"
         }
     }
 
+    /// 실패/완료 문구에 끼워 넣는 **과거분사** ("… couldn't be copied").
+    /// 영어 문장 구조상 동사 원형이 아니라 이 형태여야 자연스럽다 (2026-08-18 영어화).
     var completionVerb: String {
         switch self {
-        case .copy: return "복사"
-        case .move: return "이동"
-        case .trash: return "휴지통 이동"
-        case .rename: return "이름 변경"
-        case .createFolder: return "폴더 생성"
+        case .copy: return "copied"
+        case .move: return "moved"
+        case .trash: return "moved to Trash"
+        case .rename: return "renamed"
+        case .createFolder: return "created"
+        }
+    }
+
+    /// 작업 자체를 가리키는 **명사구** ("Copy was stopped."). 과거분사로는 문장이 안 된다.
+    var actionNoun: String {
+        switch self {
+        case .copy: return "Copy"
+        case .move: return "Move"
+        case .trash: return "Move to Trash"
+        case .rename: return "Rename"
+        case .createFolder: return "New Folder"
         }
     }
 }
@@ -40,7 +53,7 @@ struct FileConflict: Sendable, Equatable {
     let sourceModifiedAt: Date?
     let destinationSize: Int64?
     let destinationModifiedAt: Date?
-    /// 이 충돌 이후 남은 항목 수 — "남은 항목 N개에 모두 적용" 문구에 쓴다.
+    /// 이 충돌 이후 남은 항목 수 — "Apply to the remaining N items" 문구에 쓴다.
     let remainingCount: Int
 
     var name: String { destination.lastPathComponent }
@@ -114,30 +127,40 @@ enum FileOperationError: Error, Equatable, Sendable {
     case protectedTarget
     case invalidName(String)
     case nameExists
+    /// 대소문자만 바꾸는 rename의 **임시 이름 복구까지 실패**한 경우 (M2 백로그 — 예전에는 `try?`로 삼켰다).
+    ///
+    /// 이 경로에서는 항목이 `FileOperations.renameStagingPrefix` 이름으로 디스크에 남는데,
+    /// `DirectoryLoader`가 그 접두사를 열거 단계에서 걸러내므로 **목록에도 나타나지 않는다** —
+    /// 사용자 눈에는 파일이 소실된 것으로 보인다. 그래서 남은 경로를 문구에 반드시 실어 보낸다
+    /// (손으로 되돌릴 수 있는 유일한 단서다).
+    case renameStagingStranded(stagedPath: String, cause: String, recoveryFailure: String)
     case unknown(String)
 
     var message: String {
         switch self {
         case .accessDenied:
-            return "접근 권한이 없습니다."
+            return "You don't have permission."
         case .destinationReadOnly:
-            return "대상 위치가 읽기 전용입니다."
+            return "The destination is read-only."
         case .insufficientSpace:
-            return "대상 볼륨의 저장 공간이 부족합니다."
+            return "There isn't enough space on the destination volume."
         case .sourceMissing:
-            return "항목을 찾을 수 없습니다."
+            return "The item couldn't be located."
         case .destinationInsideSource:
-            return "폴더를 자기 자신이나 하위 폴더로 옮길 수 없습니다."
+            return "A folder can't be moved into itself or one of its own subfolders."
         case .destinationIsSource:
-            return "대상이 원본과 같습니다."
+            return "The destination is the same as the source."
         case .sourceInsideDestination:
-            return "덮어쓸 대상이 원본을 포함하고 있어 원본까지 삭제됩니다."
+            return "The item being replaced contains the source, so the source would be deleted too."
         case .protectedTarget:
-            return "이 항목은 변경할 수 없습니다."
+            return "This item can't be changed."
         case .invalidName(let reason):
             return reason
         case .nameExists:
-            return "같은 이름의 항목이 이미 있습니다."
+            return "An item with that name already exists."
+        case .renameStagingStranded(let stagedPath, let cause, let recoveryFailure):
+            return "The rename failed (\(cause)) and the original name couldn't be restored (\(recoveryFailure)). "
+                + "The item is left under a temporary name at '\(stagedPath)' — please rename it back in Finder."
         case .unknown(let detail):
             return detail
         }
@@ -146,7 +169,7 @@ enum FileOperationError: Error, Equatable, Sendable {
     /// Foundation/POSIX 에러를 도메인 에러로 매핑한다.
     static func map(_ error: Error) -> FileOperationError {
         if let already = error as? FileOperationError { return already }
-        if error is CancellationError { return .unknown("작업이 취소되었습니다.") }
+        if error is CancellationError { return .unknown("The operation was cancelled.") }
 
         let nsError = error as NSError
         switch nsError.domain {
@@ -163,7 +186,7 @@ enum FileOperationError: Error, Equatable, Sendable {
             case NSFileWriteFileExistsError:
                 return .nameExists
             case NSFileWriteInvalidFileNameError:
-                return .invalidName("사용할 수 없는 이름입니다.")
+                return .invalidName("That name can't be used.")
             default:
                 break
             }
@@ -180,7 +203,7 @@ enum FileOperationError: Error, Equatable, Sendable {
             case EEXIST, ENOTEMPTY:
                 return .nameExists
             case ENAMETOOLONG:
-                return .invalidName("이름이 너무 깁니다.")
+                return .invalidName("The name is too long.")
             default:
                 break
             }
@@ -217,13 +240,13 @@ struct OperationResult: Sendable, Equatable {
     /// UI설계 §8 — 다중 작업 중 일부 실패 시 끝에 요약 1회.
     func summaryMessage(for kind: FileOperationKind) -> String? {
         guard !failures.isEmpty else {
-            return isCancelled ? "\(kind.completionVerb) 작업을 중단했습니다. 처리된 항목은 유지됩니다." : nil
+            return isCancelled ? "\(kind.actionNoun) was stopped. Items already processed were kept." : nil
         }
         if failures.count == 1, let only = failures.first {
-            return "'\(only.url.lastPathComponent)' 항목을 \(kind.completionVerb)하지 못했습니다 — \(only.error.message)"
+            return "\"\(only.url.lastPathComponent)\" couldn't be \(kind.completionVerb) — \(only.error.message)"
         }
         let names = failures.prefix(3).map { $0.url.lastPathComponent }.joined(separator: ", ")
-        let suffix = failures.count > 3 ? " 외 \(failures.count - 3)개" : ""
-        return "\(failures.count)개 항목을 \(kind.completionVerb)하지 못했습니다 (\(names)\(suffix))"
+        let suffix = failures.count > 3 ? " and \(failures.count - 3) more" : ""
+        return "\(failures.count) items couldn't be \(kind.completionVerb) (\(names)\(suffix))"
     }
 }

@@ -134,7 +134,7 @@ actor DirectoryLoader: DirectoryListing {
         isDirectory: Bool,
         pathExtension: String
     ) -> String {
-        if isDirectory { return "폴더" }
+        if isDirectory { return "Folder" }
 
         let cacheKey = contentType?.identifier ?? "ext:\(pathExtension.lowercased())"
         if let cached = typeDescriptionCache[cacheKey] {
@@ -145,9 +145,9 @@ actor DirectoryLoader: DirectoryListing {
         if let localized = contentType?.localizedDescription, !localized.isEmpty {
             description = localized
         } else if !pathExtension.isEmpty {
-            description = "\(pathExtension.uppercased()) 파일"
+            description = "\(pathExtension.uppercased()) File"
         } else {
-            description = "파일"
+            description = "File"
         }
 
         typeDescriptionCache[cacheKey] = description

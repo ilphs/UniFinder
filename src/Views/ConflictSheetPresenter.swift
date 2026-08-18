@@ -132,22 +132,24 @@ final class ConflictSheetPresenter: ConflictResolving {
     // MARK: - 알림 구성 (UI설계 §7.1)
 
     /// 버튼은 추가 순서의 **역순**으로(우→좌) 배치된다.
-    /// UI설계 §7.1의 `[둘 다 유지] [건너뛰기] [취소] [덮어쓰기(기본)]` 배열을 그대로 얻기 위해
-    /// 덮어쓰기 → 취소 → 건너뛰기 → 둘 다 유지 순으로 추가한다.
+    /// UI설계 §7.1의 `[Keep Both] [Skip] [Cancel] [Replace(기본)]` 배열을 그대로 얻기 위해
+    /// Replace → Cancel → Skip → Keep Both 순으로 추가한다.
     static func makeAlert(for conflict: FileConflict) -> NSAlert {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "\"\(conflict.name)\" 항목이 이미 있습니다."
+        alert.messageText = "An item named \"\(conflict.name)\" already exists."
         alert.informativeText = informativeText(for: conflict)
 
-        alert.addButton(withTitle: "덮어쓰기")      // 기본 = Enter
-        let cancelButton = alert.addButton(withTitle: "취소")
+        alert.addButton(withTitle: "Replace")        // 기본 = Enter
+        let cancelButton = alert.addButton(withTitle: "Cancel")
         cancelButton.keyEquivalent = "\u{1b}"      // Esc = 전체 작업 중단
-        alert.addButton(withTitle: "건너뛰기")
-        alert.addButton(withTitle: "둘 다 유지")
+        alert.addButton(withTitle: "Skip")
+        alert.addButton(withTitle: "Keep Both")
 
         if conflict.remainingCount > 0 {
-            let checkbox = NSButton(checkboxWithTitle: "남은 항목 \(conflict.remainingCount)개에 모두 적용", target: nil, action: nil)
+            let remaining = conflict.remainingCount
+            let title = remaining == 1 ? "Apply to the remaining item" : "Apply to the remaining \(remaining) items"
+            let checkbox = NSButton(checkboxWithTitle: title, target: nil, action: nil)
             checkbox.sizeToFit()
             alert.accessoryView = checkbox
         }
@@ -155,12 +157,12 @@ final class ConflictSheetPresenter: ConflictResolving {
     }
 
     static func informativeText(for conflict: FileConflict) -> String {
-        let source = "원본:  \(Formatters.displaySize(conflict.sourceSize)) · \(Formatters.displayDate(conflict.sourceModifiedAt))"
-        let destination = "대상:  \(Formatters.displaySize(conflict.destinationSize)) · \(Formatters.displayDate(conflict.destinationModifiedAt))"
+        let source = "Source:  \(Formatters.displaySize(conflict.sourceSize)) · \(Formatters.displayDate(conflict.sourceModifiedAt))"
+        let destination = "Destination:  \(Formatters.displaySize(conflict.destinationSize)) · \(Formatters.displayDate(conflict.destinationModifiedAt))"
         return "\(source)\n\(destination)"
     }
 
-    /// 4번째 버튼("둘 다 유지"). `NSApplication.ModalResponse`에는 3번째까지만 상수가 있다
+    /// 4번째 버튼("Keep Both"). `NSApplication.ModalResponse`에는 3번째까지만 상수가 있다
     /// (AppKit 규약: 네 번째부터는 `alertThirdButtonReturn + n`).
     static let alertFourthButtonReturn = NSApplication.ModalResponse(
         rawValue: NSApplication.ModalResponse.alertThirdButtonReturn.rawValue + 1

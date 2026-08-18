@@ -8,13 +8,13 @@ struct ToolbarBar: View {
     var body: some View {
         HStack(spacing: 8) {
             HStack(spacing: 2) {
-                toolbarButton(system: "chevron.left", help: "뒤로 (⌘[)", enabled: model.navigation.canGoBack) {
+                toolbarButton(system: "chevron.left", help: "Back (⌘[)", enabled: model.navigation.canGoBack) {
                     model.goBack()
                 }
-                toolbarButton(system: "chevron.right", help: "앞으로 (⌘])", enabled: model.navigation.canGoForward) {
+                toolbarButton(system: "chevron.right", help: "Forward (⌘])", enabled: model.navigation.canGoForward) {
                     model.goForward()
                 }
-                toolbarButton(system: "chevron.up", help: "상위 폴더 (⌘↑)", enabled: model.navigation.canGoUp) {
+                toolbarButton(system: "chevron.up", help: "Enclosing Folder (⌘↑)", enabled: model.navigation.canGoUp) {
                     model.goUp()
                 }
             }
@@ -28,7 +28,7 @@ struct ToolbarBar: View {
             )
             .frame(maxWidth: .infinity)
 
-            toolbarButton(system: "arrow.clockwise", help: "새로 고침 (⌘R)", enabled: true) {
+            toolbarButton(system: "arrow.clockwise", help: "Refresh (⌘R)", enabled: true) {
                 model.refresh()
             }
         }

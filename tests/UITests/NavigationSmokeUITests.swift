@@ -137,7 +137,7 @@ final class NavigationSmokeUITests: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground, "Documents 진입 직후 앱이 죽었다")
 
         // 5) 트리에서 홈으로 돌아가 진입 대상(fixture)을 찾는다 — 클릭만으로 닿는 경로다.
-        let homeNode = text(anyOf: ["홈 (\(NSUserName()))", homeName], in: tree)
+        let homeNode = text(anyOf: ["Home (\(NSUserName()))", homeName], in: tree)
         XCTAssertTrue(homeNode.waitForExistence(timeout: timeout), "트리에 홈 노드가 없다")
         app.activate()
         homeNode.click()
@@ -165,15 +165,15 @@ final class NavigationSmokeUITests: XCTestCase {
             "진입한 폴더의 내용('\(childFolderName)')이 표시되지 않았다"
         )
 
-        // 7) 뒤로 → 홈으로 복귀
-        clickMenuItem(menu: "이동", item: "뒤로")
+        // 7) 뒤로 → 홈으로 복귀 (2026-08-18 영어화: 메뉴 이름이 "이동 > 뒤로" → "Go > Back")
+        clickMenuItem(menu: "Go", item: "Back")
         XCTAssertTrue(
             breadcrumbSegment(homeName).waitForExistence(timeout: timeout),
-            "[뒤로] 후 이전 위치(홈)로 돌아오지 않았다"
+            "[Back] 후 이전 위치(홈)로 돌아오지 않았다"
         )
         XCTAssertTrue(
             text(fixtureName, in: list).waitForExistence(timeout: timeout),
-            "[뒤로] 후 목록이 이전 폴더 내용으로 복원되지 않았다"
+            "[Back] 후 목록이 이전 폴더 내용으로 복원되지 않았다"
         )
 
         // 8) 종료 — 창 닫힘 경로(`AppModel.stop()`: 감시자 해제)까지 크래시 없이 지나가는지 본다
@@ -237,9 +237,14 @@ final class NavigationSmokeUITests: XCTestCase {
         return (window ?? app).buttons.matching(predicate).firstMatch
     }
 
-    /// 상태바 요약("항목 N개 …").
+    /// 상태바 요약("N items …" / "1 item …").
+    ///
+    /// 2026-08-18 영어화로 접두사가 고정 문자열("항목 ")에서 **숫자로 시작**하는 형태가 됐다.
+    /// `BEGINSWITH`로는 잡을 수 없어 정규식으로 "숫자 + item(s)" 패턴을 본다
+    /// (목록 셀의 파일 이름이 우연히 걸리지 않도록 문자열 처음에 앵커를 건다).
     private func statusSummary() -> XCUIElement {
-        let predicate = NSPredicate(format: "value BEGINSWITH '항목 ' OR label BEGINSWITH '항목 '")
+        let pattern = "^[0-9]+ items?( \\|.*)?$"
+        let predicate = NSPredicate(format: "value MATCHES %@ OR label MATCHES %@", pattern, pattern)
         return (window ?? app).staticTexts.matching(predicate).firstMatch
     }
 

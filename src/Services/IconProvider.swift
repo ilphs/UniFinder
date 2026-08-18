@@ -147,7 +147,7 @@ final class IconProvider {
         badged.lockFocus()
         base.draw(in: NSRect(origin: .zero, size: size))
 
-        if let arrow = NSImage(systemSymbolName: "arrow.up.forward", accessibilityDescription: "심볼릭 링크") {
+        if let arrow = NSImage(systemSymbolName: "arrow.up.forward", accessibilityDescription: "Symbolic link") {
             let config = NSImage.SymbolConfiguration(pointSize: 7, weight: .bold)
             let symbol = arrow.withSymbolConfiguration(config) ?? arrow
             let badgeRect = NSRect(x: 0, y: 0, width: 8, height: 8)

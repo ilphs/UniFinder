@@ -94,9 +94,9 @@ final class FullDiskAccessModel {
     var bannerMessage: String {
         switch status {
         case .denied:
-            return "제한 모드 — 일부 폴더는 '전체 디스크 접근' 권한이 없어 열 수 없습니다."
+            return "Limited mode — some folders can't be opened without Full Disk Access."
         case .undetermined:
-            return "일부 폴더는 '전체 디스크 접근' 권한이 필요할 수 있습니다."
+            return "Some folders may require Full Disk Access."
         case .granted:
             return ""
         }

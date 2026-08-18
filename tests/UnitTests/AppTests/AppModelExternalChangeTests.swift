@@ -108,7 +108,7 @@ final class AppModelExternalChangeTests: TempDirectoryTestCase {
             PathKey.key(model.navigation.currentURL), PathKey.key(testRoot),
             "사라진 폴더에 갇히지 않고 가장 가까운 상위로 이동해야 한다(설계서 §6)"
         )
-        XCTAssertEqual(model.transientMessage, "폴더가 사라져 상위 폴더로 이동했습니다.", "안내는 모달이 아니라 상태바 문구여야 한다")
+        XCTAssertEqual(model.transientMessage, "The folder no longer exists. Moved to the enclosing folder.", "안내는 모달이 아니라 상태바 문구여야 한다")
     }
 
     /// **M3 리뷰 권장 2 회귀** — 같은 경로에 폴더가 다시 만들어지면 내용도 다시 읽어야 한다.
@@ -180,10 +180,10 @@ final class AppModelExternalChangeTests: TempDirectoryTestCase {
         await waitUntil { model.directory.currentURL != nil }
 
         model.createFolder(in: folder)
-        await waitUntil { model.directory.items.contains { $0.name == "새 폴더" } }
+        await waitUntil { model.directory.items.contains { $0.name == "untitled folder" } }
 
         XCTAssertTrue(
-            model.directory.items.contains { $0.name == "새 폴더" },
+            model.directory.items.contains { $0.name == "untitled folder" },
             "조작 결과 반영을 FSEvents에 맡기면 감시가 없는 경로에서 화면이 갱신되지 않는다(B7)"
         )
     }

@@ -303,11 +303,38 @@ actor FileOperations: FileOperating {
     /// 임시 이름을 경유해 두 단계로 수행하고, 실패하면 원래 이름으로 되돌린다.
     private func renameChangingCaseOnly(_ item: URL, to target: URL, in parent: URL) throws {
         let staging = parent.appendingPathComponent("\(Self.renameStagingPrefix)\(UUID().uuidString)")
-        try fileManager.moveItem(at: item, to: staging)
+        try Self.renameChangingCaseOnly(item, to: target, staging: staging) { [fileManager] source, destination in
+            try fileManager.moveItem(at: source, to: destination)
+        }
+    }
+
+    /// 두 단계 rename 본체 — 이동 연산을 주입받아 **복구 실패 경로까지** 파일시스템 없이 검증할 수 있다
+    /// (`uniqueURL(for:exists:)`와 같은 규칙).
+    ///
+    /// **복구 실패를 삼키지 않는다** (M2 백로그): 예전에는 되돌리기를 `try?`로 호출해서 그 실패가
+    /// 조용히 사라졌다. 그러면 항목은 `renameStagingPrefix` 이름으로 디스크에 남는데 `DirectoryLoader`가
+    /// 그 접두사를 걸러내므로 목록에도 보이지 않는다 — 사용자는 원래 rename 에러만 보고 파일이
+    /// 사라졌다고 판단하게 된다. 남은 경로를 실어 `renameStagingStranded`로 구분해 보고한다.
+    static func renameChangingCaseOnly(
+        _ item: URL,
+        to target: URL,
+        staging: URL,
+        move: (URL, URL) throws -> Void
+    ) throws {
+        try move(item, staging)
         do {
-            try fileManager.moveItem(at: staging, to: target)
+            try move(staging, target)
         } catch {
-            try? fileManager.moveItem(at: staging, to: item)
+            do {
+                try move(staging, item)
+            } catch let recoveryError {
+                throw FileOperationError.renameStagingStranded(
+                    stagedPath: staging.path,
+                    cause: FileOperationError.map(error).message,
+                    recoveryFailure: FileOperationError.map(recoveryError).message
+                )
+            }
+            // 복구에 성공한 경로는 예전과 완전히 동일하게 **원래 rename 에러**를 보고한다.
             throw error
         }
     }
@@ -315,7 +342,7 @@ actor FileOperations: FileOperating {
     // MARK: - 새 폴더
 
     /// **원시 연산** — 이름이 이미 있으면 `.nameExists`로 거부한다.
-    /// "새 폴더 2" 넘버링은 `FileOperating.createFolder(in:uniqueBaseName:)` 래퍼가 담당한다
+    /// "untitled folder 2" 넘버링은 `FileOperating.createFolder(in:uniqueBaseName:)` 래퍼가 담당한다
     /// (레이어 분리: 여기서 조용히 다른 이름으로 만들면 호출자가 의도를 통제할 수 없다).
     func createFolder(in parent: URL, name: String) async -> OperationResult {
         var result = OperationResult()
@@ -516,19 +543,19 @@ actor FileOperations: FileOperating {
     static func normalizedName(_ raw: String) throws -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            throw FileOperationError.invalidName("이름을 입력하세요.")
+            throw FileOperationError.invalidName("Enter a name.")
         }
         guard !trimmed.contains("/") else {
-            throw FileOperationError.invalidName("이름에 \"/\" 문자를 사용할 수 없습니다.")
+            throw FileOperationError.invalidName("The name can't contain \"/\".")
         }
         guard !trimmed.contains(":") else {
-            throw FileOperationError.invalidName("이름에 \":\" 문자를 사용할 수 없습니다.")
+            throw FileOperationError.invalidName("The name can't contain \":\".")
         }
         guard trimmed != ".", trimmed != ".." else {
-            throw FileOperationError.invalidName("사용할 수 없는 이름입니다.")
+            throw FileOperationError.invalidName("That name can't be used.")
         }
         guard trimmed.utf8.count <= 255 else {
-            throw FileOperationError.invalidName("이름이 너무 깁니다 (최대 255바이트).")
+            throw FileOperationError.invalidName("The name is too long (maximum 255 bytes).")
         }
         return trimmed
     }

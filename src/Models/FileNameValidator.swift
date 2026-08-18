@@ -32,19 +32,19 @@ enum FileNameValidator {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmed.isEmpty else {
-            return .invalid(reason: "이름을 입력하세요.")
+            return .invalid(reason: "Enter a name.")
         }
         guard !trimmed.contains("/") else {
-            return .invalid(reason: "이름에 \"/\" 문자를 사용할 수 없습니다.")
+            return .invalid(reason: "The name can't contain \"/\".")
         }
         guard !trimmed.contains(":") else {
-            return .invalid(reason: "이름에 \":\" 문자를 사용할 수 없습니다.")
+            return .invalid(reason: "The name can't contain \":\".")
         }
         guard trimmed != ".", trimmed != ".." else {
-            return .invalid(reason: "사용할 수 없는 이름입니다.")
+            return .invalid(reason: "That name can't be used.")
         }
         guard trimmed.utf8.count <= maxNameBytes else {
-            return .invalid(reason: "이름이 너무 깁니다 (최대 \(maxNameBytes)바이트).")
+            return .invalid(reason: "The name is too long (maximum \(maxNameBytes) bytes).")
         }
 
         let excluded = excludedName?.lowercased()
@@ -52,11 +52,11 @@ enum FileNameValidator {
             .map { $0.lowercased() }
             .filter { $0 != excluded }
         guard !taken.contains(trimmed.lowercased()) else {
-            return .invalid(reason: "같은 이름의 항목이 이미 있습니다.")
+            return .invalid(reason: "An item with that name already exists.")
         }
 
         if trimmed.hasPrefix(".") {
-            return .needsConfirmation(reason: "'.'으로 시작하는 이름은 숨김 항목이 됩니다.")
+            return .needsConfirmation(reason: "Names that begin with a dot are hidden items.")
         }
         return .valid
     }

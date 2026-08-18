@@ -119,6 +119,17 @@ final class ClipboardModel {
         return (urls, .cut)
     }
 
+    /// "무조건 이동"으로 붙여넣을 대상 (Finder의 Move Items Here — ⌥⌘V, 2026-08-18 D단계).
+    ///
+    /// `pasteSource()`는 파스트보드 소유권을 잃으면 연산을 `.copy`로 **강등**한다. 그건
+    /// "외부 앱이 넣어둔 내용에 우리 쪽 cut 의미론을 **추론으로** 적용하지 않는다"는 안전 기본값이다.
+    /// 이 진입점은 그 기본값을 **의도적으로 뚫는다** — ⌥⌘V는 사용자가 "이동"을 직접 명시한
+    /// 명령이지 추론이 아니고, Finder도 외부 클립보드에 대해 똑같이 이동한다.
+    /// 그래서 강등 규칙은 `pasteSource()`에만 남기고 여기서는 **항목만** 돌려준다.
+    func moveSourceItems() -> [URL] {
+        pasteboardURLs()
+    }
+
     private func pasteboardURLs() -> [URL] {
         let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
         guard let objects = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL]

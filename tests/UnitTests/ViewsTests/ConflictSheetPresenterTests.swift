@@ -50,11 +50,11 @@ final class ConflictSheetPresenterTests: XCTestCase {
     }
 
     /// 4번째 버튼 상수(`alertThirdButtonReturn + 1`)가 실제 알림 버튼 배열과 어긋나면
-    /// "둘 다 유지"가 조용히 `.cancel`로 바뀐다 — 상수와 실제 배열을 함께 고정한다.
+    /// "Keep Both"가 조용히 `.cancel`로 바뀐다 — 상수와 실제 배열을 함께 고정한다.
     func testMakeAlert_buttonOrderMatchesFourthButtonConstant() {
         let alert = ConflictSheetPresenter.makeAlert(for: makeConflict())
 
-        XCTAssertEqual(alert.buttons.map(\.title), ["덮어쓰기", "취소", "건너뛰기", "둘 다 유지"], "UI설계 §7.1 버튼 배열이 바뀌었다")
+        XCTAssertEqual(alert.buttons.map(\.title), ["Replace", "Cancel", "Skip", "Keep Both"], "UI설계 §7.1 버튼 배열이 바뀌었다")
         XCTAssertEqual(alert.buttons.count, 4)
         XCTAssertEqual(
             ConflictSheetPresenter.alertFourthButtonReturn.rawValue,

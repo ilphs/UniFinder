@@ -56,7 +56,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.unifinder.app
         GENERATE_INFOPLIST_FILE: YES
         CURRENT_PROJECT_VERSION: "1"
-        MARKETING_VERSION: "0.1.0"
+        MARKETING_VERSION: "0.2.0"
         # 앱 아이콘 — Asset Catalog 방식 (생성: scripts/make-icon.sh)
         # INFOPLIST_KEY_CFBundleIconFile은 Xcode가 지원하지 않는 키라 Info.plist에
         # 반영되지 않는다. Asset Catalog + 아래 설정이 CFBundleIconName을 자동 주입한다.
@@ -68,11 +68,12 @@ targets:
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
         INFOPLIST_KEY_NSSupportsAutomaticTermination: NO
         INFOPLIST_KEY_NSSupportsSuddenTermination: NO
-        # TCC 사용 목적 문구 — 즐겨찾기(데스크탑/다운로드/서류)를 트리에 노출하므로 필수.
+        # TCC 사용 목적 문구 — 즐겨찾기 기본값(데스크탑/다운로드/서류)을 트리에 노출하므로 필수.
         # 문구가 없으면 macOS가 권한 프롬프트 대신 앱을 종료시킨다.
-        INFOPLIST_KEY_NSDesktopFolderUsageDescription: "UniFinder가 데스크탑 폴더의 파일을 탐색하고 표시하기 위해 접근합니다."
-        INFOPLIST_KEY_NSDocumentsFolderUsageDescription: "UniFinder가 서류 폴더의 파일을 탐색하고 표시하기 위해 접근합니다."
-        INFOPLIST_KEY_NSDownloadsFolderUsageDescription: "UniFinder가 다운로드 폴더의 파일을 탐색하고 표시하기 위해 접근합니다."
+        # 이 문구는 **macOS 권한 프롬프트에 그대로 노출되는 UI 문자열**이라 영어로 둔다(2026-08-18).
+        INFOPLIST_KEY_NSDesktopFolderUsageDescription: "UniFinder needs access to your Desktop folder to browse and display its files."
+        INFOPLIST_KEY_NSDocumentsFolderUsageDescription: "UniFinder needs access to your Documents folder to browse and display its files."
+        INFOPLIST_KEY_NSDownloadsFolderUsageDescription: "UniFinder needs access to your Downloads folder to browse and display its files."
         COMBINE_HIDPI_IMAGES: YES
         # 서명/hardened runtime은 타깃이 아니라 **프로젝트 configs**(위 settings.configs)에서
         # 구성별로 정한다. 여기에 같은 키를 두면 타깃 설정이 구성별 값을 가려버리므로 두지 않는다.

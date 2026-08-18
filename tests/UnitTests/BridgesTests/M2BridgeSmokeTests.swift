@@ -18,6 +18,12 @@ final class M2BridgeSmokeTests: XCTestCase {
     /// (지역 변수만 두면 함수 반환과 함께 해제될 수 있다).
     private var retainedTableViews: [KeyRoutingTableView] = []
 
+    /// 셀을 담을 윈도우. **인라인 편집은 셀이 윈도우에 붙어 있어야만 시작된다**
+    /// (`InlineNameEditor.begin`의 `field.window == nil` 가드 — M2 백로그).
+    /// 윈도우 없이 만든 목록에서 "편집 진입 성공"을 기대하면 브릿지의 진입 실패 보고 결함을
+    /// 테스트가 그대로 눈감아 준다.
+    private var retainedWindows: [NSWindow] = []
+
     // MARK: - 헬퍼
 
     private func makeItem(name: String, isDirectory: Bool = false, isHidden: Bool = false) -> FileItem {
@@ -40,7 +46,8 @@ final class M2BridgeSmokeTests: XCTestCase {
         canPaste: Bool = false,
         onOpen: @escaping ([FileItem]) -> Void = { _ in },
         onBeginRename: @escaping (URL) -> Void = { _ in },
-        onDelete: @escaping () -> Void = {}
+        onDelete: @escaping () -> Void = {},
+        isFavorite: @escaping (URL) -> Bool = { _ in false }
     ) -> FileListBridge {
         var selection = Set<URL>()
         return FileListBridge(
@@ -59,6 +66,7 @@ final class M2BridgeSmokeTests: XCTestCase {
             onRefresh: {},
             onTypeAhead: { _ in },
             onDelete: onDelete,
+            isFavorite: isFavorite,
             onBeginRename: onBeginRename
         )
     }
@@ -70,7 +78,8 @@ final class M2BridgeSmokeTests: XCTestCase {
         canPaste: Bool = false,
         onOpen: @escaping ([FileItem]) -> Void = { _ in },
         onBeginRename: @escaping (URL) -> Void = { _ in },
-        onDelete: @escaping () -> Void = {}
+        onDelete: @escaping () -> Void = {},
+        isFavorite: @escaping (URL) -> Bool = { _ in false }
     ) -> FileListBridge.Coordinator {
         let bridge = makeBridge(
             items: items,
@@ -78,11 +87,20 @@ final class M2BridgeSmokeTests: XCTestCase {
             canPaste: canPaste,
             onOpen: onOpen,
             onBeginRename: onBeginRename,
-            onDelete: onDelete
+            onDelete: onDelete,
+            isFavorite: isFavorite
         )
         let coordinator = bridge.makeCoordinator()
-        let tableView = KeyRoutingTableView()
+        let tableView = KeyRoutingTableView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         retainedTableViews.append(tableView)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView?.addSubview(tableView)
+        retainedWindows.append(window)
         tableView.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier(SortKey.name.columnIdentifier)))
         tableView.dataSource = coordinator
         tableView.delegate = coordinator
@@ -368,10 +386,52 @@ final class M2BridgeSmokeTests: XCTestCase {
         let menu = coordinator.makeContextMenu(forRow: 0)
         let titles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
 
-        XCTAssertEqual(titles, ["열기", "복사", "잘라내기", "이름 변경", "휴지통으로 이동", "Finder에서 보기"])
+        XCTAssertEqual(
+            titles,
+            ["Open", "Copy", "Cut", "Rename", "Move to Trash", "Show in Finder", "Add to Favorites"]
+        )
 
-        let rename = menu.items.first { $0.title == "이름 변경" }
+        let rename = menu.items.first { $0.title == "Rename" }
         XCTAssertEqual(rename?.isEnabled, false, "다중 선택 시 이름 변경은 비활성이어야 함(UI설계 §6)")
+    }
+
+    // MARK: - 즐겨찾기 토글 (2026-08-18)
+
+    /// 파일에는 즐겨찾기 항목이 비활성이어야 한다(폴더만 즐겨찾기가 된다).
+    func testItemContextMenu_file_disablesFavoriteToggle() {
+        let coordinator = makeCoordinator(items: [makeItem(name: "a.txt")], selectedRows: IndexSet(integer: 0))
+
+        let menu = coordinator.makeContextMenu(forRow: 0)
+        let favorite = menu.items.first { $0.title.hasSuffix("Favorites") }
+
+        XCTAssertEqual(favorite?.title, "Add to Favorites")
+        XCTAssertEqual(favorite?.isEnabled, false, "파일에 즐겨찾기 등록이 열려 있다")
+    }
+
+    func testItemContextMenu_folder_enablesFavoriteToggle() {
+        let items = [makeItem(name: "docs", isDirectory: true)]
+        let coordinator = makeCoordinator(items: items, selectedRows: IndexSet(integer: 0))
+
+        let menu = coordinator.makeContextMenu(forRow: 0)
+        let favorite = menu.items.first { $0.title.hasSuffix("Favorites") }
+
+        XCTAssertEqual(favorite?.title, "Add to Favorites")
+        XCTAssertEqual(favorite?.isEnabled, true)
+    }
+
+    /// 이미 등록된 폴더면 **해제 항목 하나로 토글**된다(등록/해제를 둘 다 띄우지 않는다).
+    func testItemContextMenu_registeredFolder_showsRemoveInsteadOfAdd() {
+        let items = [makeItem(name: "docs", isDirectory: true)]
+        let coordinator = makeCoordinator(
+            items: items,
+            selectedRows: IndexSet(integer: 0),
+            isFavorite: { _ in true }
+        )
+
+        let menu = coordinator.makeContextMenu(forRow: 0)
+        let favoriteItems = menu.items.filter { $0.title.hasSuffix("Favorites") }
+
+        XCTAssertEqual(favoriteItems.map(\.title), ["Remove from Favorites"], "등록/해제가 동시에 노출됐다")
     }
 
     func testItemContextMenu_singleSelection_enablesRename() {
@@ -379,7 +439,7 @@ final class M2BridgeSmokeTests: XCTestCase {
         let coordinator = makeCoordinator(items: items, selectedRows: IndexSet(integer: 0))
 
         let menu = coordinator.makeContextMenu(forRow: 0)
-        XCTAssertEqual(menu.items.first { $0.title == "이름 변경" }?.isEnabled, true)
+        XCTAssertEqual(menu.items.first { $0.title == "Rename" }?.isEnabled, true)
     }
 
     func testBackgroundContextMenu_disablesPasteWhenClipboardEmpty() {
@@ -387,26 +447,26 @@ final class M2BridgeSmokeTests: XCTestCase {
 
         let menu = coordinator.makeContextMenu(forRow: -1)
         let titles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
-        XCTAssertEqual(titles, ["새 폴더", "붙여넣기", "정렬 기준", "새로 고침"])
-        XCTAssertEqual(menu.items.first { $0.title == "붙여넣기" }?.isEnabled, false)
+        XCTAssertEqual(titles, ["New Folder", "Paste", "Sort By", "Refresh"])
+        XCTAssertEqual(menu.items.first { $0.title == "Paste" }?.isEnabled, false)
     }
 
     func testBackgroundContextMenu_enablesPasteWhenClipboardHasItems() {
         let coordinator = makeCoordinator(items: [], canPaste: true)
         let menu = coordinator.makeContextMenu(forRow: -1)
-        XCTAssertEqual(menu.items.first { $0.title == "붙여넣기" }?.isEnabled, true)
+        XCTAssertEqual(menu.items.first { $0.title == "Paste" }?.isEnabled, true)
     }
 
     func testBackgroundContextMenu_sortSubmenuChecksCurrentDescriptor() {
         let coordinator = makeCoordinator(items: [])
         let menu = coordinator.makeContextMenu(forRow: -1)
 
-        guard let submenu = menu.items.first(where: { $0.title == "정렬 기준" })?.submenu else {
+        guard let submenu = menu.items.first(where: { $0.title == "Sort By" })?.submenu else {
             return XCTFail("정렬 기준 서브메뉴가 없음")
         }
-        XCTAssertEqual(submenu.items.first { $0.title == "이름" }?.state, .on, "현재 정렬 기준에 체크 표시(UI설계 §6)")
-        XCTAssertEqual(submenu.items.first { $0.title == "오름차순" }?.state, .on)
-        XCTAssertEqual(submenu.items.first { $0.title == "내림차순" }?.state, .off)
+        XCTAssertEqual(submenu.items.first { $0.title == "Name" }?.state, .on, "현재 정렬 기준에 체크 표시(UI설계 §6)")
+        XCTAssertEqual(submenu.items.first { $0.title == "Ascending" }?.state, .on)
+        XCTAssertEqual(submenu.items.first { $0.title == "Descending" }?.state, .off)
     }
 
     /// 컨텍스트 메뉴 액션과 단축키 액션이 같은 콜백을 쓰는지 (T7 — 중복 구현 금지).
@@ -423,7 +483,7 @@ final class M2BridgeSmokeTests: XCTestCase {
         XCTAssertEqual(deleteCount, 1)
 
         let menu = coordinator.makeContextMenu(forRow: 0)
-        guard let item = menu.items.first(where: { $0.title == "휴지통으로 이동" }),
+        guard let item = menu.items.first(where: { $0.title == "Move to Trash" }),
               let action = item.action
         else { return XCTFail("휴지통으로 이동 메뉴 항목이 없음") }
         _ = item.target?.perform(action, with: item)

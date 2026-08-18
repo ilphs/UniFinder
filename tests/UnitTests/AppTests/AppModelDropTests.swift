@@ -181,7 +181,7 @@ final class AppModelDropTests: TempDirectoryTestCase {
         let secondCallCount = await gated.moveCallCount
         XCTAssertEqual(secondCallCount, 1, "진행 중에 들어온 두 번째 드롭이 실행되면 안 된다(B12)")
         XCTAssertEqual(
-            appModel.transientMessage, "이전 파일 조작이 끝난 뒤에 다시 시도하세요.",
+            appModel.transientMessage, "Try again after the current file operation finishes.",
             "두 번째 드롭은 기존 붙여넣기와 같은 안내를 띄워야 한다"
         )
 

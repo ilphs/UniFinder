@@ -60,7 +60,7 @@ final class OperationProgressModelTests: XCTestCase {
 
         model.update(progress(.copy, 128, 512))
 
-        XCTAssertEqual(model.itemCountText, "128/512 항목", "진행 문구는 항목 수 기준이어야 한다(B19 — 바이트는 Phase 2)")
+        XCTAssertEqual(model.itemCountText, "128/512 items", "진행 문구는 항목 수 기준이어야 한다(B19 — 바이트는 Phase 2)")
         XCTAssertEqual(model.title, FileOperationKind.copy.progressLabel)
         XCTAssertEqual(model.fraction ?? 0, 0.25, accuracy: 0.0001)
     }

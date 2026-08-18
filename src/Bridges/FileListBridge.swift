@@ -131,6 +131,10 @@ struct FileListBridge: NSViewRepresentable {
     var onDelete: () -> Void = {}
     var onNewFolder: () -> Void = {}
     var onRevealInFinder: () -> Void = {}
+
+    // 2026-08-18 — 즐겨찾기 등록/해제 (컨텍스트 메뉴 진입점). 폴더에만 의미가 있다.
+    var isFavorite: (URL) -> Bool = { _ in false }
+    var onToggleFavorite: (URL) -> Void = { _ in }
     var onBeginRename: (URL) -> Void = { _ in }
     /// 커밋 직전 동기 검증. 사유를 돌려주면 편집이 유지된다 (UI설계 §7.2).
     var onValidateRename: (URL, String) -> String? = { _, _ in nil }
@@ -339,6 +343,11 @@ struct FileListBridge: NSViewRepresentable {
         weak var tableView: KeyRoutingTableView?
 
         var items: [FileItem] = []
+
+        /// 컨텍스트 메뉴가 겨냥한 즐겨찾기 대상 (2026-08-18).
+        /// 메뉴를 연 시점의 항목을 스냅샷해 둔다 — 트리 브릿지의 `contextNode`와 같은 규칙이다.
+        private(set) var favoriteTarget: URL?
+
         var appliedRevision: Int = -1
         /// 마지막으로 반영한 외부 변경 카운터 (m3-impl T0/B5).
         var appliedContentsRevision: Int = 0
@@ -834,8 +843,13 @@ struct FileListBridge: NSViewRepresentable {
 
             // 편집 진입 시 타입-어헤드 버퍼 리셋 (m2-impl T5)
             resetTypeAhead()
+
+            // **`onRenamingChanged(true)`는 진입에 성공한 뒤에 부른다** (M2 백로그):
+            // 셀이 아직 윈도우에 붙기 전이면 `InlineNameEditor`가 조용히 실패하는데, 먼저 true를
+            // 세워두면 편집 중이 아닌데도 `AppModel.isRenaming`이 고착돼 B23 보류 로직이 잘못 걸리고
+            // `applyRenameRequest`가 진입 실패를 성공으로 보고해 토큰을 조기 소비한다(재시도 경로 사망).
+            guard cell.beginRename() else { return false }
             parent.onRenamingChanged(true)
-            cell.beginRename()
             return true
         }
 
@@ -950,47 +964,64 @@ struct FileListBridge: NSViewRepresentable {
         func makeContextMenu(forRow row: Int) -> NSMenu {
             let menu = NSMenu()
             menu.autoenablesItems = false
+            // 이전 메뉴의 대상이 남지 않게 매번 초기화한다(빈 영역 메뉴에는 즐겨찾기 항목이 없다).
+            favoriteTarget = nil
 
             if row >= 0, row < items.count {
-                buildItemMenu(menu)
+                buildItemMenu(menu, clicked: items[row])
             } else {
                 buildBackgroundMenu(menu)
             }
             return menu
         }
 
-        private func buildItemMenu(_ menu: NSMenu) {
+        private func buildItemMenu(_ menu: NSMenu, clicked: FileItem) {
             let selectionCount = tableView?.selectedRowIndexes.count ?? 0
 
-            menu.addItem(makeItem("열기", #selector(menuOpen), key: "\r", modifiers: []))
+            menu.addItem(makeItem("Open", #selector(menuOpen), key: "\r", modifiers: []))
             menu.addItem(.separator())
-            menu.addItem(makeItem("복사", #selector(menuCopy), key: "c", modifiers: .command))
-            menu.addItem(makeItem("잘라내기", #selector(menuCut), key: "x", modifiers: .command))
+            menu.addItem(makeItem("Copy", #selector(menuCopy), key: "c", modifiers: .command))
+            menu.addItem(makeItem("Cut", #selector(menuCut), key: "x", modifiers: .command))
             menu.addItem(.separator())
             menu.addItem(makeItem(
-                "이름 변경",
+                "Rename",
                 #selector(menuRename),
                 key: String(KeyScalar.f2),
                 modifiers: [],
                 // 다중 선택 시 비활성 (UI설계 §6)
                 enabled: selectionCount == 1
             ))
-            menu.addItem(makeItem("휴지통으로 이동", #selector(menuDelete), key: "\u{8}", modifiers: .command))
+            menu.addItem(makeItem("Move to Trash", #selector(menuDelete), key: "\u{8}", modifiers: .command))
             menu.addItem(.separator())
-            // architect B9 — Finder 정보창을 여는 공개 API가 없어 "Finder에서 보기"로 대체
-            menu.addItem(makeItem("Finder에서 보기", #selector(menuRevealInFinder), key: "i", modifiers: .command))
+            // architect B9 — Finder 정보창을 여는 공개 API가 없어 "Show in Finder"로 대체
+            menu.addItem(makeItem("Show in Finder", #selector(menuRevealInFinder), key: "i", modifiers: .command))
+            menu.addItem(.separator())
+
+            // 즐겨찾기 토글 (2026-08-18). **등록/해제 중 하나만** 띄운다 —
+            // 둘 다 띄우면 어느 쪽이 유효한지 사용자가 매번 추론해야 한다.
+            // 대상은 "우클릭한 항목"으로 고정한다(선택이 그 사이 바뀌어도 흔들리지 않게).
+            favoriteTarget = clicked.isDirectory ? clicked.url : nil
+            let isRegistered = clicked.isDirectory && parent.isFavorite(clicked.url)
+            menu.addItem(makeItem(
+                isRegistered ? "Remove from Favorites" : "Add to Favorites",
+                #selector(menuToggleFavorite),
+                key: "t",
+                modifiers: [.control, .command],
+                // 폴더가 아닌 파일·다중 선택에는 비활성
+                enabled: clicked.isDirectory && selectionCount == 1
+            ))
         }
 
         private func buildBackgroundMenu(_ menu: NSMenu) {
-            menu.addItem(makeItem("새 폴더", #selector(menuNewFolder), key: "n", modifiers: [.command, .shift]))
+            menu.addItem(makeItem("New Folder", #selector(menuNewFolder), key: "n", modifiers: [.command, .shift]))
             menu.addItem(.separator())
-            menu.addItem(makeItem("붙여넣기", #selector(menuPaste), key: "v", modifiers: .command, enabled: parent.canPaste))
+            menu.addItem(makeItem("Paste", #selector(menuPaste), key: "v", modifiers: .command, enabled: parent.canPaste))
             menu.addItem(.separator())
 
-            let sortItem = NSMenuItem(title: "정렬 기준", action: nil, keyEquivalent: "")
+            let sortItem = NSMenuItem(title: "Sort By", action: nil, keyEquivalent: "")
             sortItem.submenu = makeSortMenu()
             menu.addItem(sortItem)
-            menu.addItem(makeItem("새로 고침", #selector(menuRefresh), key: "r", modifiers: .command))
+            menu.addItem(makeItem("Refresh", #selector(menuRefresh), key: "r", modifiers: .command))
         }
 
         private func makeSortMenu() -> NSMenu {
@@ -1006,11 +1037,11 @@ struct FileListBridge: NSViewRepresentable {
             }
             submenu.addItem(.separator())
 
-            let ascending = makeItem("오름차순", #selector(menuSortAscending), key: "", modifiers: [])
+            let ascending = makeItem("Ascending", #selector(menuSortAscending), key: "", modifiers: [])
             ascending.state = descriptor.ascending ? .on : .off
             submenu.addItem(ascending)
 
-            let descending = makeItem("내림차순", #selector(menuSortDescending), key: "", modifiers: [])
+            let descending = makeItem("Descending", #selector(menuSortDescending), key: "", modifiers: [])
             descending.state = descriptor.ascending ? .off : .on
             submenu.addItem(descending)
 
@@ -1040,6 +1071,11 @@ struct FileListBridge: NSViewRepresentable {
         @objc private func menuNewFolder() { parent.onNewFolder() }
         @objc private func menuRefresh() { parent.onRefresh() }
         @objc private func menuRevealInFinder() { parent.onRevealInFinder() }
+
+        @objc private func menuToggleFavorite() {
+            guard let url = favoriteTarget else { return }
+            parent.onToggleFavorite(url)
+        }
 
         /// 메뉴에서 기준만 고르는 경우 방향은 유지한다(헤더 클릭의 토글 규칙과 구분).
         @objc private func menuSortKey(_ sender: NSMenuItem) {

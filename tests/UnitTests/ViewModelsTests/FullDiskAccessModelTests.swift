@@ -91,7 +91,7 @@ final class FullDiskAccessModelTests: XCTestCase {
         XCTAssertEqual(model.status, .undetermined)
         XCTAssertFalse(model.isOnboardingPresented, "판정 불가에서 시트를 띄우면 오탐 안내가 된다(B22)")
         XCTAssertTrue(model.shouldShowBanner)
-        XCTAssertEqual(model.bannerMessage, "일부 폴더는 '전체 디스크 접근' 권한이 필요할 수 있습니다.")
+        XCTAssertEqual(model.bannerMessage, "Some folders may require Full Disk Access.")
     }
 
     func testStart_isIdempotent() {
@@ -115,7 +115,7 @@ final class FullDiskAccessModelTests: XCTestCase {
         XCTAssertFalse(model.isOnboardingPresented)
         XCTAssertTrue(model.isPostponed)
         XCTAssertTrue(model.shouldShowBanner, "제한 모드임을 계속 알려야 한다")
-        XCTAssertEqual(model.bannerMessage, "제한 모드 — 일부 폴더는 '전체 디스크 접근' 권한이 없어 열 수 없습니다.")
+        XCTAssertEqual(model.bannerMessage, "Limited mode — some folders can't be opened without Full Disk Access.")
     }
 
     func testDismissingSheetDirectly_marksPostponed() {

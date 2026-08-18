@@ -120,10 +120,10 @@ final class AppModel {
     @ObservationIgnored
     let directoryWatcher: DirectoryWatcher
 
-    /// 앱-모달 알림(`runModal`)이 떠 있는지 (m3-impl T0/B23).
+    /// 확인 시트가 떠 있는지 (m3-impl T0/B23).
     ///
-    /// 모달 런루프 중에도 메인 큐 콜백은 계속 실행되므로, 이 가드가 없으면 사용자가 알림을
-    /// 보고 있는 사이에 뒤쪽 목록이 통째로 갈아엎힌다.
+    /// 시트가 떠 있는 동안에도 메인 큐 콜백(FSEvents 갱신)은 계속 실행되므로, 이 가드가 없으면
+    /// 사용자가 알림을 보고 있는 사이에 뒤쪽 목록이 통째로 갈아엎힌다.
     @ObservationIgnored
     private var isShowingModal = false
 
@@ -167,7 +167,7 @@ final class AppModel {
             sortDescriptor: settings.sortDescriptor,
             showHidden: settings.showHidden
         )
-        self.tree = TreeModel(loader: loader, showHidden: settings.showHidden)
+        self.tree = TreeModel(loader: loader, showHidden: settings.showHidden, settings: settings)
 
         focusBroker.beginAddressEditing = { [weak self] in
             self?.isAddressEditing = true
@@ -231,7 +231,7 @@ final class AppModel {
     func navigate(to url: URL, source: NavigationSource = .list) {
         let resolved = Self.nearestExistingDirectory(NavigationModel.normalize(url))
         if resolved != NavigationModel.normalize(url) {
-            showMessage("폴더를 찾을 수 없어 상위 폴더로 이동했습니다.")
+            showMessage("The folder couldn't be found. Moved to the enclosing folder.")
         }
         guard resolved != navigation.currentURL else {
             // 같은 폴더 재선택은 재열거만 수행하지 않고 무시한다(불필요한 깜빡임 방지)
@@ -268,7 +268,7 @@ final class AppModel {
         let existing = Self.nearestExistingDirectory(current)
         if existing != current {
             navigation.replaceCurrent(with: existing)
-            showMessage("폴더가 사라져 상위 폴더로 이동했습니다.")
+            showMessage("The folder no longer exists. Moved to the enclosing folder.")
             loadCurrent(source: .toolbar)
             return
         }
@@ -304,8 +304,23 @@ final class AppModel {
     /// 외부 변경 반영을 미뤄야 하는 상태.
     ///
     /// - 인라인 편집 중: 재열거하면 편집 중인 셀이 통째로 사라진다(architect B7과 같은 규칙)
-    /// - 모달 알림 중: 모달 뒤에서 목록이 갈아엎힌다(m3-impl B23)
+    /// - 확인 시트 표시 중: 시트 뒤에서 목록이 갈아엎힌다(m3-impl B23)
     private var isExternalRefreshSuspended: Bool { isRenaming || isShowingModal }
+
+    /// 확인 시트가 떠 있는 동안 외부 변경 반영을 보류하고, **닫힌 뒤에** 1회 반영한다 (B23).
+    ///
+    /// **`defer`로 해제하면 안 된다** (M2 백로그 — `runModal` → 시트 전환의 유일한 함정):
+    /// 앱-모달 런루프는 사용자가 버튼을 누를 때까지 `runModal()` 안에서 블록되므로 `defer`가
+    /// 곧 "시트가 닫힌 시점"이었다. 시트는 런루프를 블록하지 않아 표시 요청 직후 함수가 반환하므로,
+    /// 같은 자리에서 `defer`를 쓰면 시트가 뜨자마자 가드가 풀려 보류 규약이 통째로 무력화된다.
+    /// 해제는 반드시 시트 완료 콜백이 도착한 뒤(= `body`의 `await`가 재개된 뒤)여야 한다.
+    func withExternalRefreshSuspended<T>(_ body: () async -> T) async -> T {
+        isShowingModal = true
+        let value = await body()
+        isShowingModal = false
+        flushPendingExternalChange()
+        return value
+    }
 
     private func handleExternalChange(at url: URL) {
         // 감시 통지와 현재 폴더가 어긋났으면(이동 직후 도착한 이벤트) 버린다.
@@ -344,7 +359,7 @@ final class AppModel {
             return
         }
         navigation.replaceCurrent(with: existing)
-        showMessage("폴더가 사라져 상위 폴더로 이동했습니다.")
+        showMessage("The folder no longer exists. Moved to the enclosing folder.")
         tree.invalidate(existing)
         loadCurrent(source: .toolbar)
     }
@@ -374,7 +389,7 @@ final class AppModel {
     /// 언마운트된 볼륨 하위를 보고 있었으면 홈으로 이동한다 (설계서 §6, 모달 없이 상태바 안내).
     func handleVolumeUnmounted(_ volumeURL: URL?) {
         guard Self.shouldLeaveUnmountedVolume(current: navigation.currentURL, unmounted: volumeURL) else { return }
-        showMessage("볼륨이 분리되어 홈 폴더로 이동했습니다.")
+        showMessage("The volume was ejected. Moved to your home folder.")
         navigate(to: FileManager.default.homeDirectoryForCurrentUser, source: .toolbar)
     }
 
@@ -436,6 +451,62 @@ final class AppModel {
         tree.showHidden = newValue
         tree.rebuildSections()
         startReveal(navigation.currentURL)
+    }
+
+    // MARK: - 즐겨찾기 (2026-08-18 사용자 요청)
+
+    /// 메뉴바 즐겨찾기 항목의 대상.
+    ///
+    /// - 선택이 없으면 **표시 중인 폴더** (Win10 탐색기의 "현재 폴더를 즐겨찾기에 고정"과 같은 감각)
+    /// - 폴더 하나만 선택돼 있으면 그 폴더
+    /// - 파일이 선택됐거나 다중 선택이면 `nil` → 메뉴 비활성 (폴더만 즐겨찾기가 된다)
+    var favoriteTarget: URL? {
+        if directory.selection.isEmpty { return navigation.currentURL }
+        guard directory.selection.count == 1, let selected = directory.selection.first else { return nil }
+        guard let item = directory.items.first(where: { PathKey.isSame($0.url, selected) }), item.isDirectory
+        else { return nil }
+        return item.url
+    }
+
+    /// 메뉴 항목을 등록/해제 중 **어느 쪽으로 띄울지** 결정하는 값 (둘 다 띄우지 않는다).
+    var isFavoriteTargetRegistered: Bool {
+        guard let target = favoriteTarget else { return false }
+        return isFavorite(target)
+    }
+
+    func isFavorite(_ url: URL) -> Bool {
+        settings.isFavorite(url)
+    }
+
+    /// 즐겨찾기 등록. 이미 있으면 아무 것도 하지 않는다(중복 등록 거부는 `AppSettings`가 판정).
+    func addFavorite(_ url: URL) {
+        guard settings.addFavorite(url) else { return }
+        tree.rebuildSections()
+        startReveal(navigation.currentURL)
+    }
+
+    /// 즐겨찾기 해제.
+    ///
+    /// **파일시스템은 건드리지 않는다** — 트리의 위험 대상 가드(`TreeModel.isProtectedNode`)가
+    /// 막는 것은 rename/삭제이고, 이 액션은 목록에서만 빼는 별개 개념이라 그 가드와 무관하다.
+    func removeFavorite(_ url: URL) {
+        guard settings.removeFavorite(url) else { return }
+        tree.rebuildSections()
+        startReveal(navigation.currentURL)
+    }
+
+    func toggleFavorite(_ url: URL) {
+        if isFavorite(url) {
+            removeFavorite(url)
+        } else {
+            addFavorite(url)
+        }
+    }
+
+    /// 메뉴바 항목이 쓰는 토글 (대상이 없으면 무시).
+    func toggleFavoriteForCurrentTarget() {
+        guard let target = favoriteTarget else { return }
+        toggleFavorite(target)
     }
 
     // MARK: - 주소창 (T5)
@@ -514,6 +585,84 @@ final class AppModel {
 
     var canPaste: Bool { clipboard.canPaste }
 
+    // MARK: - Edit 메뉴 라우팅 (2026-08-18 D단계)
+
+    /// Edit 메뉴의 Cut/Copy/Paste/Select All이 향할 곳.
+    enum EditActionTarget: Equatable {
+        /// 주소창·인라인 rename·시트의 텍스트 (responder chain으로 위임)
+        case textField
+        /// 우측 목록·좌측 트리의 파일 조작
+        case files
+    }
+
+    /// responder chain에 텍스트 편집 대상이 서 있는지 (기본 구현은 first responder를 본다).
+    ///
+    /// 모델이 아는 `isTextEditing`(주소창·인라인 rename)만으로는 부족하다 — 충돌/온보딩 시트의
+    /// 텍스트 필드처럼 **모델이 모르는 편집기**가 있다. 예전에는 표준 Edit 메뉴가 남아 있어
+    /// 그쪽이 받아줬지만, `.pasteboard`를 교체한 뒤로는 이 판정이 유일한 안전망이다.
+    /// 테스트가 responder chain 없이 분기를 고정할 수 있도록 주입 가능하게 둔다.
+    @ObservationIgnored
+    var isTextResponderActive: () -> Bool = { AppModel.firstResponderIsTextEditor() }
+
+    static func firstResponderIsTextEditor() -> Bool {
+        guard let responder = NSApp?.keyWindow?.firstResponder else { return false }
+        // field editor는 `NSTextView`(= `NSText`)다. `NSTextField` 자체가 응답자인 경우도 받는다.
+        return responder is NSText || responder is NSTextField
+    }
+
+    /// 지금 ⌘X/⌘C/⌘V/⌘A가 누구 것인지.
+    var editActionTarget: EditActionTarget {
+        isTextEditing || isTextResponderActive() ? .textField : .files
+    }
+
+    /// 텍스트 편집으로 넘길 때 쓰는 responder chain 위임 (테스트에서 교체 가능).
+    @ObservationIgnored
+    var forwardToTextResponder: (Selector) -> Void = { selector in
+        NSApp?.sendAction(selector, to: nil, from: nil)
+    }
+
+    /// Edit 메뉴 "Cut" — 텍스트 편집 중이면 field editor에, 아니면 파일 잘라내기.
+    ///
+    /// **메뉴 항목을 `.disabled`로 내려서는 안 된다**: 그러면 ⌘X를 달고 있는 항목이 메뉴에
+    /// 하나도 없게 되고, AppKit은 ⌘ 단축키를 responder chain보다 **메인 메뉴에서 먼저** 찾으므로
+    /// 주소창·인라인 rename의 잘라내기가 통째로 죽는다. 게다가 메뉴 활성 상태는 SwiftUI가
+    /// 뷰 갱신 시점에 계산하는 스냅샷이라 first responder 변화를 따라가지 못한다 —
+    /// 그래서 **항상 활성으로 두고 동작만 분기**한다.
+    func editCut() {
+        switch editActionTarget {
+        case .textField: forwardToTextResponder(#selector(NSText.cut(_:)))
+        case .files: cut()
+        }
+    }
+
+    func editCopy() {
+        switch editActionTarget {
+        case .textField: forwardToTextResponder(#selector(NSText.copy(_:)))
+        case .files: copy()
+        }
+    }
+
+    func editPaste() {
+        switch editActionTarget {
+        case .textField: forwardToTextResponder(#selector(NSText.paste(_:)))
+        case .files: pasteIntoCurrentFolder()
+        }
+    }
+
+    /// Edit 메뉴 "Select All" — `.pasteboard` 그룹을 교체하면 표준 항목이 함께 사라지므로 직접 되살린다.
+    ///
+    /// 목록/트리에는 `selectAll` 핸들러가 없고 `NSTableView`/`NSOutlineView`의 기본 구현에 기댄다.
+    /// 두 경로 모두 셀렉터 문자열이 `selectAll:`로 같아서 위임 한 줄이면 된다.
+    func editSelectAll() {
+        forwardToTextResponder(#selector(NSText.selectAll(_:)))
+    }
+
+    /// Edit 메뉴 "Move Items Here"(⌥⌘V) — ⌥⌘V는 텍스트 단축키가 아니라 편집 중에는 무시한다.
+    func editMoveItemsHere() {
+        guard editActionTarget == .files else { return }
+        moveClipboardItemsIntoCurrentFolder()
+    }
+
     // MARK: - 붙여넣기 (M2 T4)
 
     /// 클립보드 항목을 `destination`으로 복사/이동한다.
@@ -523,10 +672,29 @@ final class AppModel {
     func paste(into destination: URL) {
         let source = clipboard.pasteSource()
         guard !source.items.isEmpty else { return }
+        performClipboardPaste(items: source.items, into: destination, isMove: source.operation == .cut)
+    }
 
-        let items = source.items
+    /// Finder의 "Move Items Here"(⌥⌘V) — 클립보드 내용을 **무조건 이동**으로 붙여넣는다 (2026-08-18 D단계).
+    ///
+    /// Finder에는 파일 잘라내기가 없고 ⌘C 후 ⌥⌘V로 이동한다. UniFinder는 Win10식 ⌘X를
+    /// 그대로 유지하면서 그 위에 이 진입점만 얹는다 — copy 클립보드든 외부 클립보드든 이동한다.
+    ///
+    /// **`paste(into:)`와 같은 경로를 쓴다**: `runOperation` 직렬화와 `applyOperationResult`라는
+    /// 단일 경유점을 우회하면 조작 2건 동시 진행·트리 무효화 누락이 한꺼번에 생긴다(m3-impl T3/B9).
+    func moveClipboardItems(into destination: URL) {
+        let items = clipboard.moveSourceItems()
+        guard !items.isEmpty else { return }
+        performClipboardPaste(items: items, into: destination, isMove: true)
+    }
+
+    func moveClipboardItemsIntoCurrentFolder() {
+        moveClipboardItems(into: navigation.currentURL)
+    }
+
+    /// 붙여넣기/이동의 공통 실행부. 대상과 연산이 정해진 뒤의 흐름은 완전히 같다.
+    private func performClipboardPaste(items: [URL], into destination: URL, isMove: Bool) {
         let target = destination
-        let isMove = source.operation == .cut
         let kind: FileOperationKind = isMove ? .move : .copy
         let sourceParents = items.map { $0.deletingLastPathComponent() }
 
@@ -537,8 +705,19 @@ final class AppModel {
             return await operations.copy(items: items, to: target, resolver: conflictPresenter, progress: sink)
         } completion: { [weak self] result in
             guard let self else { return }
-            if isMove {
-                // cut은 1회 소비 후 클립보드를 비운다 (m2-impl T4)
+            // 이동은 1회 소비 후 클립보드를 비운다 (m2-impl T4).
+            //
+            // **단, 실제로 하나라도 이동에 성공했을 때만이다** (M2 백로그): 전부 실패했거나 충돌
+            // 시트에서 취소했는데도 비우면 사용자는 잘라낸 항목을 잃고 처음부터 다시 잘라내야 한다.
+            // `skipped`(같은 폴더 붙여넣기 등)도 소비로 치지 않는다 — 옮겨진 것이 하나도 없기 때문이다.
+            //
+            // 부분 성공(일부만 이동)은 **비운다**: 남은 항목을 다시 붙여넣어도 이미 이동된 원본은
+            // 그 자리에 없어 `sourceMissing`만 반복되므로, 클립보드를 유지하는 편이 더 혼란스럽다.
+            //
+            // 판정 기준은 "잘라내기였는가"가 아니라 **"원본이 그 자리에서 사라졌는가"**다 (D단계).
+            // ⌥⌘V는 copy 클립보드로도 이동을 수행하므로 그때도 같은 규칙으로 소비한다 —
+            // 남겨두면 이어지는 ⌘V가 `sourceMissing`만 반복한다.
+            if isMove, !result.produced.isEmpty {
                 self.clipboard.clear()
             }
             self.applyOperationResult(
@@ -680,7 +859,7 @@ final class AppModel {
         // 확인 알림/시트는 다음 런루프에서 띄운다.
         Task { @MainActor [weak self] in
             guard let self else { return }
-            guard self.confirmHiddenNameIfNeeded(newName) else { return }
+            guard await self.confirmHiddenNameIfNeeded(newName) else { return }
             self.performRename(url, to: newName)
         }
     }
@@ -712,25 +891,41 @@ final class AppModel {
     }
 
     /// `.`으로 시작하는 이름은 숨김 항목이 되므로 1회 확인한다 (UI설계 §7.2).
-    private func confirmHiddenNameIfNeeded(_ name: String) -> Bool {
-        guard name.hasPrefix("."), !settings.showHidden else { return true }
+    ///
+    /// **앱-모달(`runModal`)이 아니라 윈도우 시트다** (M2 백로그): 이름 하나를 확인하려고 앱 전체를
+    /// 블로킹할 이유가 없다. 시트 표시/응답 규약은 `ConflictSheetPresenter`가 세운 패턴
+    /// (`beginSheetModal(for:)` + `withCheckedContinuation`)을 그대로 따른다.
+    private func confirmHiddenNameIfNeeded(_ name: String) async -> Bool {
+        guard Self.needsHiddenNameConfirmation(name, showHidden: settings.showHidden) else { return true }
+        // 윈도우가 없거나 보이지 않으면(헤드리스/테스트) 확인 없이 진행한다.
         guard let window = focusBroker.window, window.isVisible else { return true }
 
+        // 시트가 떠 있는 동안 도착한 외부 변경은 보류했다가 **닫힌 뒤** 1회 반영한다(B23).
+        return await withExternalRefreshSuspended {
+            await Self.presentHiddenNameSheet(name: name, in: window)
+        }
+    }
+
+    /// 숨김화 확인이 필요한 이름인지 — 뷰 없이 검증할 수 있게 분리한 순수 판정.
+    static func needsHiddenNameConfirmation(_ name: String, showHidden: Bool) -> Bool {
+        name.hasPrefix(".") && !showHidden
+    }
+
+    /// - Returns: 사용자가 "사용"을 골랐으면 `true`. 취소하면 `false`(rename을 수행하지 않는다).
+    private static func presentHiddenNameSheet(name: String, in window: NSWindow) async -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .informational
-        alert.messageText = "'.'으로 시작하는 이름은 숨김 항목이 됩니다."
-        alert.informativeText = "'\(name)'으로 변경하면 숨김 항목 표시를 켜야 목록에 나타납니다."
-        alert.addButton(withTitle: "사용")
-        alert.addButton(withTitle: "취소")
+        alert.messageText = "Names that begin with a dot are hidden items."
+        alert.informativeText = "If you use \"\(name)\", the item won't appear in the list unless Show Hidden Items is on."
+        alert.addButton(withTitle: "Use")
+        alert.addButton(withTitle: "Cancel")
 
-        // 앱-모달 런루프 중에도 메인 큐 콜백(FSEvents 갱신)은 계속 실행된다.
-        // 모달 뒤에서 목록이 갈아엎히지 않도록 그동안의 외부 변경은 보류했다가 닫힌 뒤 1회 반영한다(B23).
-        isShowingModal = true
-        defer {
-            isShowingModal = false
-            flushPendingExternalChange()
+        let response = await withCheckedContinuation { (continuation: CheckedContinuation<NSApplication.ModalResponse, Never>) in
+            alert.beginSheetModal(for: window) { response in
+                continuation.resume(returning: response)
+            }
         }
-        return alert.runModal() == .alertFirstButtonReturn
+        return response == .alertFirstButtonReturn
     }
 
     // MARK: - 새 폴더 (M2 T6)
@@ -739,7 +934,7 @@ final class AppModel {
     func createFolder(in parent: URL) {
         runOperation(kind: .createFolder) { [operations] _ in
             // 연속 생성 시 "새 폴더 2", "새 폴더 3" … (UI설계 §6 / m2-impl T6)
-            await operations.createFolder(in: parent, uniqueBaseName: "새 폴더")
+            await operations.createFolder(in: parent, uniqueBaseName: "untitled folder")
         } completion: { [weak self] result in
             guard let self else { return }
             self.applyOperationResult(
@@ -777,7 +972,7 @@ final class AppModel {
         completion: @escaping @MainActor (OperationResult) -> Void
     ) {
         guard operationTask == nil else {
-            showMessage("이전 파일 조작이 끝난 뒤에 다시 시도하세요.")
+            showMessage("Try again after the current file operation finishes.")
             return
         }
         isOperationInProgress = true
@@ -799,7 +994,7 @@ final class AppModel {
     func cancelCurrentOperation() {
         guard let task = operationTask else { return }
         operationProgress.markCancelling()
-        showMessage("작업을 취소하는 중입니다 — 처리된 항목은 유지됩니다.")
+        showMessage("Cancelling — items already processed will be kept.")
         task.cancel()
     }
 
@@ -856,7 +1051,7 @@ final class AppModel {
         let existing = Self.nearestExistingDirectory(current)
         if !PathKey.isSame(existing, current) {
             navigation.replaceCurrent(with: existing)
-            showMessage("폴더가 사라져 상위 폴더로 이동했습니다.")
+            showMessage("The folder no longer exists. Moved to the enclosing folder.")
             directory.load(url: existing)
             syncWatcher()
             startReveal(existing)
@@ -884,9 +1079,9 @@ final class AppModel {
         }
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "\(kind.completionVerb)하지 못한 항목이 있습니다."
+        alert.messageText = "Some items couldn't be \(kind.completionVerb)."
         alert.informativeText = message
-        alert.addButton(withTitle: "확인")
+        alert.addButton(withTitle: "OK")
         alert.beginSheetModal(for: window, completionHandler: nil)
     }
 

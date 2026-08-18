@@ -26,7 +26,7 @@ struct OperationProgressOverlay: View {
     private var card: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(progress.isCancelling ? "취소하는 중…" : progress.title)
+                Text(progress.isCancelling ? "Cancelling…" : progress.title)
                     .font(.system(size: 12, weight: .semibold))
                     .lineLimit(1)
 
@@ -48,7 +48,7 @@ struct OperationProgressOverlay: View {
             }
             .frame(width: 260, alignment: .leading)
 
-            Button("취소") { onCancel() }
+            Button("Cancel") { onCancel() }
                 .disabled(progress.isCancelling)
         }
         .padding(.horizontal, 14)

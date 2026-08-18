@@ -17,11 +17,11 @@ struct OnboardingSheet: View {
                     .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("UniFinder가 전체 파일을 탐색하려면 '전체 디스크 접근' 권한이 필요합니다")
+                    Text("UniFinder needs Full Disk Access to browse all of your files")
                         .font(.system(size: 14, weight: .semibold))
                         .fixedSize(horizontal: false, vertical: true)
 
-                    Text("권한 없이도 홈 폴더 대부분은 탐색할 수 있지만, 일부 시스템·앱 데이터 폴더는 열 수 없습니다.")
+                    Text("Most of your home folder works without it, but some system and app data folders can't be opened.")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -29,14 +29,14 @@ struct OnboardingSheet: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                stepText("1. [시스템 설정 열기]를 누릅니다.")
-                stepText("2. 목록에서 UniFinder를 켭니다.")
-                stepText("3. UniFinder로 돌아오면 자동으로 인식합니다.")
+                stepText("1. Click [Open System Settings].")
+                stepText("2. Turn on UniFinder in the list.")
+                stepText("3. Return to UniFinder — the change is detected automatically.")
             }
             .padding(.leading, 40)
 
             if model.deepLinkFailed {
-                Text("시스템 설정을 열지 못했습니다. 시스템 설정 > 개인정보 보호 및 보안 > 전체 디스크 접근에서 직접 허용해 주세요.")
+                Text("System Settings couldn't be opened. Allow UniFinder in System Settings > Privacy & Security > Full Disk Access.")
                     .font(.system(size: 11))
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
@@ -44,9 +44,9 @@ struct OnboardingSheet: View {
 
             HStack {
                 Spacer()
-                Button("나중에") { model.postpone() }
+                Button("Later") { model.postpone() }
                     .keyboardShortcut(.cancelAction)
-                Button("시스템 설정 열기") { model.openSystemSettings() }
+                Button("Open System Settings") { model.openSystemSettings() }
                     .keyboardShortcut(.defaultAction)
             }
         }
@@ -80,7 +80,7 @@ struct FullDiskAccessBanner: View {
 
             Spacer(minLength: 8)
 
-            Button("권한 설정 안내") { model.present() }
+            Button("How to Grant Access") { model.present() }
                 .buttonStyle(.link)
                 .font(.system(size: 11))
         }
