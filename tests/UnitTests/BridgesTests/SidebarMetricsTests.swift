@@ -2,13 +2,20 @@ import AppKit
 import XCTest
 @testable import UniFinder
 
-/// 사이드바 치수 계약 (2026-08-18 사용자 요청 — **섹션 헤더만** 확대, 폴더 행은 우측 목록과 동일).
+/// 사이드바 치수 계약 (2026-08-18 사용자 요청들이 쌓인 최종 상태).
+///
+/// **두 축이 서로 다른 방향으로 확정돼 있으니 섞지 말 것**:
+/// - **폰트/심볼 크기**는 헤더가 폴더 행보다 **크다**(macOS 관례와 반대, Win10 탐색기 지향 — 사용자
+///   확정, 되돌리지 말 것).
+/// - **행 높이**는 반대로 헤더/폴더/placeholder **구분 없이 전부 같다**("헤더, 항목 구분없이
+///   항목과 동일한 높이로" — 26 → 30 → 60pt를 오가다 최종적으로 `nodeRowHeight` 하나로 합쳐짐).
+///   즉 헤더 글자·아이콘은 크게 보이되, 행 자체의 세로 공간(간격)은 폴더 행과 똑같다.
 ///
 /// **이 테스트가 잡으려는 결함 두 가지**
 /// 1. 잘림 — 폰트/아이콘만 키우고 행 높이를 그대로 두면 셀 위아래가 잘린다. 픽셀을 봐야 아는
 ///    결함이라 "행 높이가 콘텐츠를 담기에 충분한가"를 산술로 단언한다.
-/// 2. 의도 역전 — 헤더>항목 크기 관계(macOS 관례와 반대)와 폴더 행=목록 동일성은 **사용자가 확정한
-///    선택**이다. 다음 사람이 "표준에 맞춘다"며 되돌리면 요청이 조용히 무효화되므로 관계로 못박는다.
+/// 2. 의도 역전 — 위 두 축의 방향이 바뀌면(헤더가 폴더보다 작아지거나, 행 높이가 다시 갈리면)
+///    요청이 조용히 무효화되므로 관계/동일성으로 못박는다.
 @MainActor
 final class SidebarMetricsTests: TempDirectoryTestCase {
 
@@ -89,16 +96,15 @@ final class SidebarMetricsTests: TempDirectoryTestCase {
     // MARK: - 행 높이 수용성 (잘림 방지)
 
     func testSectionRowHeight_containsSymbolAndText() {
-        let padding = SidebarMetrics.sectionVerticalPadding * 2
         XCTAssertGreaterThanOrEqual(
             SidebarMetrics.sectionRowHeight,
-            SidebarMetrics.sectionSymbolLength + padding,
-            "헤더 행이 심볼 + 여백을 담지 못한다"
+            SidebarMetrics.sectionSymbolLength,
+            "헤더 행이 심볼을 담지 못한다"
         )
         XCTAssertGreaterThanOrEqual(
             SidebarMetrics.sectionRowHeight,
-            SidebarMetrics.lineHeight(of: SidebarMetrics.sectionFont) + padding,
-            "헤더 행이 텍스트 라인 높이 + 여백을 담지 못한다 — 글자 위아래가 잘린다"
+            SidebarMetrics.lineHeight(of: SidebarMetrics.sectionFont),
+            "헤더 행이 텍스트 라인 높이를 담지 못한다 — 글자 위아래가 잘린다"
         )
     }
 
@@ -124,36 +130,64 @@ final class SidebarMetricsTests: TempDirectoryTestCase {
         XCTAssertEqual(SidebarMetrics.nodeRowHeight, SidebarMetrics.nodeContentHeight + 6, accuracy: 0.5)
     }
 
-    /// 헤더 행은 폴더 행(22pt)보다 높아야 그룹 경계로 읽히지만, 과하게 높으면 헤더 텍스트가
-    /// 위아래 가운데에서 붕 떠 자기 그룹과 멀어진다(행 높이만 정할 수 있고 위/아래 여백을 따로 줄 수 없다).
-    func testSectionRowHeight_tallerThanFolderRowButNotFloaty() {
-        XCTAssertGreaterThan(
-            SidebarMetrics.sectionRowHeight,
-            SidebarMetrics.nodeRowHeight,
-            "헤더 행이 폴더 행보다 높지 않아 그룹 경계가 흐려진다"
-        )
-        XCTAssertLessThanOrEqual(
-            SidebarMetrics.sectionRowHeight - SidebarMetrics.nodeRowHeight,
-            8,
-            "헤더 행이 폴더 행보다 8pt 넘게 높다 — 헤더가 자기 그룹에서 떠 보인다"
-        )
+    /// 확정된 값 자체를 못박는다 (2026-08-18 최종 요청 — "헤더, 항목 구분없이 항목과 동일한
+    /// 높이로"): 헤더 행 높이가 폴더 행과 **정확히 같다**(22pt). 예전엔 헤더가 폴더보다 높아야
+    /// "그룹 경계로 읽힌다"는 반대 방향 요구가 있었지만, 지금은 이 요청으로 뒤집혔다 —
+    /// 헤더를 다시 키우는 회귀 금지.
+    func testSectionRowHeight_equalsFolderRowHeight() {
+        XCTAssertEqual(SidebarMetrics.sectionRowHeight, SidebarMetrics.nodeRowHeight)
+        XCTAssertEqual(SidebarMetrics.sectionRowHeight, 22, accuracy: 0.5)
     }
 
     // MARK: - 브릿지 결선
 
-    /// 항목 종류별로 다른 높이를 돌려주는지 (헤더/폴더가 같은 높이로 뭉개지면 위계가 사라진다).
-    func testCoordinatorRowHeight_branchesByItemKind() throws {
+    /// **항목 종류·위치와 무관하게 언제나 같은 높이를 돌려주는지** (2026-08-18 최종 요청 —
+    /// "헤더, 항목 구분없이 항목과 동일한 높이로"). 예전엔 이 함수가 `node.kind`로 분기해
+    /// 헤더/폴더에 다른 값을 줬는데(그 전엔 "바로 위 행이 뭐냐"로도 한 번 더 분기했었다),
+    /// 지금은 분기 자체가 없다 — `item`이 섹션이든 폴더든 `TreeNode`가 아닌 임의 객체든
+    /// 항상 `SidebarMetrics.nodeRowHeight` 하나를 돌려준다.
+    func testCoordinatorRowHeight_sameForAllItemKinds() throws {
         let coordinator = makeCoordinator()
         let model = coordinator.parent.model
 
         let section = try XCTUnwrap(model.sections.first)
-        XCTAssertEqual(coordinator.rowHeight(for: section), SidebarMetrics.sectionRowHeight)
+        XCTAssertEqual(coordinator.rowHeight(for: section), SidebarMetrics.nodeRowHeight)
 
         let homeRoot = try XCTUnwrap(model.node(for: testRoot))
         XCTAssertEqual(coordinator.rowHeight(for: homeRoot), SidebarMetrics.nodeRowHeight)
 
-        // TreeNode가 아닌 항목이 와도 폴더 행 높이로 안전하게 떨어진다.
+        // TreeNode가 아닌 항목이 와도 같은 높이로 안전하게 떨어진다.
         XCTAssertEqual(coordinator.rowHeight(for: NSObject()), SidebarMetrics.nodeRowHeight)
+    }
+
+    /// 위 계약을 상수가 아니라 **실제로 배치된 `NSOutlineView`**에서 재확인한다 — 헤더 행과
+    /// 항목 행이 화면에서도 같은 픽셀 높이로 그려지는지.
+    func testOutlineView_headerAndItemRowsRenderSameHeight() throws {
+        let coordinator = makeCoordinator()
+        let bridge = coordinator.parent
+        let model = bridge.model
+
+        let outlineView = KeyRoutingOutlineView(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
+        retainedViews.append(outlineView)
+        outlineView.rowSizeStyle = .custom
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("tree"))
+        outlineView.addTableColumn(column)
+        outlineView.outlineTableColumn = column
+        coordinator.outlineView = outlineView
+        outlineView.reloadData()
+        for section in model.sections {
+            outlineView.expandItem(section)
+        }
+
+        XCTAssertGreaterThan(outlineView.numberOfRows, 1, "헤더/항목이 섞인 여러 행이 있어야 의미 있는 테스트다")
+        let heights = (0..<outlineView.numberOfRows).map { outlineView.rect(ofRow: $0).height }
+        XCTAssertEqual(
+            Set(heights.map { ($0 * 2).rounded() }).count,
+            1,
+            "헤더 행과 항목 행의 렌더 높이가 서로 다르다 — \(heights)"
+        )
     }
 
     /// **헤더 확대가 실제로 화면에 나오게 만드는 핵심 조건** (2026-08-18 실측으로 밝혀냄).

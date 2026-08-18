@@ -292,20 +292,20 @@ struct SidebarTreeBridge: NSViewRepresentable {
             false
         }
 
-        /// 행 높이 (2026-08-18 사이드바 확대 — 헤더 26pt / 폴더 행 22pt).
-        ///
-        /// 헤더는 키운 심볼·텍스트를 담아야 하고, 폴더 행은 **우측 목록과 같은 22pt**여야 하므로
-        /// 종류별로 값이 다르다. 값 자체는 셀 레이아웃과 어긋나지 않도록 `SidebarMetrics`가 단독으로
-        /// 소유하고(폴더 행은 다시 `FileListMetrics`를 참조한다) 여기서는 분기만 한다.
+        /// 행 높이 — **헤더/폴더/placeholder 구분 없이 전부 22pt** (2026-08-18 최종 요청:
+        /// "헤더, 항목 구분없이 항목과 동일한 높이로"). 26 → 30 → 60pt까지 헤더만 키웠다 줄였다
+        /// 하던 과거를 전부 정리하고 값을 `SidebarMetrics.nodeRowHeight`(= `FileListMetrics.
+        /// rowHeight`, 우측 목록과 동일) 하나로 합쳤다 — `rowHeight(for:)`가 종류를 더 이상
+        /// 따지지 않는 것 자체가 이 결정이다. (폰트·심볼 크기는 여전히 헤더가 더 크다 — 그건
+        /// 행 높이와 별개로 확정된 선택, `SidebarMetrics.sectionFontSize` 참조.)
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
             rowHeight(for: item)
         }
 
-        /// 테스트가 델리게이트 경유 없이 직접 검증할 수 있게 분리해 둔다.
+        /// 테스트가 델리게이트 경유 없이 직접 검증할 수 있게 분리해 둔다. `item`이 무엇이든
+        /// (섹션·폴더·placeholder·그 외) 항상 같은 값 하나를 돌려준다 — 위 주석 참조.
         func rowHeight(for item: Any) -> CGFloat {
-            guard let node = item as? TreeNode else { return SidebarMetrics.nodeRowHeight }
-            // placeholder("Loading…")는 폴더 행 자리에 뜨므로 폴더 행과 같은 높이를 쓴다.
-            return node.kind == .section ? SidebarMetrics.sectionRowHeight : SidebarMetrics.nodeRowHeight
+            SidebarMetrics.nodeRowHeight
         }
 
         func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {

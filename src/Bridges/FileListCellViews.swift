@@ -54,12 +54,6 @@ enum SidebarMetrics {
     static let sectionLeading: CGFloat = 5
     static let sectionSpacing: CGFloat = 6
     static let sectionTrailing: CGFloat = 4
-    /// 행 위아래 여백(각각).
-    ///
-    /// 폴더 행이 22pt(우측 목록과 동일)이므로 헤더는 26pt가 된다 — 항목보다 확실히 높아 그룹 경계로
-    /// 읽히면서, 그 이상 키우면 헤더 텍스트가 위아래 가운데에서 붕 떠 자기 그룹과 멀어진다
-    /// (행 높이만 정할 수 있고 위/아래 여백을 따로 줄 수 없어서 커질수록 양쪽이 같이 벌어진다).
-    static let sectionVerticalPadding: CGFloat = 4
 
     // MARK: 폴더 행 — 우측 목록과 **동일**하게 유지 (숫자를 따로 적지 않는다)
 
@@ -89,20 +83,20 @@ enum SidebarMetrics {
         ceil(font.ascender - font.descender + font.leading)
     }
 
-    /// 헤더 행이 담아야 하는 콘텐츠 높이 (심볼과 텍스트 중 큰 쪽).
-    static var sectionContentHeight: CGFloat {
-        max(sectionSymbolLength, lineHeight(of: sectionFont))
-    }
-
     /// 폴더/placeholder 행이 담아야 하는 콘텐츠 높이.
     static var nodeContentHeight: CGFloat {
         max(nodeIconLength, lineHeight(of: nodeFont), lineHeight(of: placeholderFont))
     }
 
     /// 섹션 헤더 행 높이.
-    static var sectionRowHeight: CGFloat {
-        sectionContentHeight + sectionVerticalPadding * 2
-    }
+    ///
+    /// 2026-08-18 "헤더/항목 구분 없이 항목과 동일한 높이로" 요청으로 `nodeRowHeight`를
+    /// **그대로 참조**한다 — 예전엔 `sectionContentHeight + sectionVerticalPadding * 2`라는
+    /// 별도 공식으로 26 → 30 → 60pt를 오갔는데, 그 공식 자체가 "헤더는 항목과 다른 높이"라는
+    /// 전제였다. 지금은 그 전제가 사용자 요청으로 뒤집혔으니 매직 넘버로 다시 맞추는 대신
+    /// 원본을 그대로 참조해 폴더 행 높이가 바뀌어도 조용히 어긋나지 않게 한다.
+    /// (폰트·심볼 크기는 여전히 헤더가 더 크다 — 그건 별개로 확정된 선택, `sectionFontSize` 참조.)
+    static var sectionRowHeight: CGFloat { nodeRowHeight }
 
     /// 폴더/placeholder 행 높이 — **우측 목록과 같은 값**.
     ///
