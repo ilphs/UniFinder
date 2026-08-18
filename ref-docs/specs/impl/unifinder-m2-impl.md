@@ -82,7 +82,8 @@ M1의 `TreeNode.name`/`url`은 `let`이고 `nodeIndex`는 등록(`register`)만 
 - 휴지통 이동 키 = **`Cmd+Backspace`** + **`fn+Delete`**(`KeyScalar.forwardDelete` — M1이 이미 소비 예약해 둔 키)
 - 단독 `Backspace`는 **상위 폴더 이동으로 유지**(변경 금지)
 - 두 키 모두 브릿지 `handleKeyDown`에서 처리해 M1의 B4 키보드 소유권 경계를 유지한다(현재 `.command` 분기는 방향키만 처리하고 나머지는 `super.keyDown`으로 흘려 비프음이 나므로, `Cmd+Backspace` 분기를 명시적으로 추가)
-- `Cmd+C`/`Cmd+X`/`Cmd+V`를 `AppCommands`(앱 메뉴)에 등록할 경우, 메뉴 key equivalent가 responder chain보다 먼저 잡히므로 **주소창 편집 중·인라인 rename 중에는 해당 메뉴 아이템을 `.disabled`**로 내려 텍스트 필드의 기본 복사/붙여넣기가 정상 동작하게 한다
+- ~~`Cmd+C`/`Cmd+X`/`Cmd+V`를 `AppCommands`(앱 메뉴)에 등록할 경우, 메뉴 key equivalent가 responder chain보다 먼저 잡히므로 **주소창 편집 중·인라인 rename 중에는 해당 메뉴 아이템을 `.disabled`**로 내려 텍스트 필드의 기본 복사/붙여넣기가 정상 동작하게 한다~~
+  → **2026-08-18 D단계에서 대체됨**(m3-impl §5.2). 파일 조작을 Edit 메뉴로 합치면서 이 회피책이 성립하지 않게 됐다 — `.disabled`로 내리면 `Cmd+C`를 단 항목이 메뉴에 **하나도 없게 되어** 텍스트 필드의 복사/붙여넣기까지 함께 죽는다. 지금은 항목을 **항상 활성**으로 두고 `AppModel.editActionTarget`이 동작만 분기한다
 
 **삭제 동작**
 - `FileManager.trashItem` (설계 결정 #3)

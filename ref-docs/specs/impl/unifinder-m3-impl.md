@@ -32,7 +32,7 @@ M2 리뷰에서 "M2 완료를 막지 않음"으로 백로그 처리된 항목 �
 | B3 | `ConflictSheetPresenter.swift` L138 `default: return .keepBoth` | T4가 취소 UI를 도입하면 예상 밖 응답 경로가 늘어남. 실패 시 기본값이 "파일 생성"인 것은 안전 기본값이 아님 → `.cancel` |
 | B4 | `cancelledIDs` 정리 경로 없음 (정상 종료 후 도착한 취소가 영구 잔류) | M3에서 취소가 상시 동작이 되면 조작 1건당 누적 |
 
-**M3와 무관해 백로그 유지**: `renameChangingCaseOnly` 복구 실패 은닉, `runModal()` 모달 알림, cut 클립보드 소거 타이밍, `beginRename` 진입 실패 오보고.
+**M3와 무관해 백로그 유지**: `renameChangingCaseOnly` 복구 실패 은닉, `runModal()` 모달 알림, cut 클립보드 소거 타이밍, `beginRename` 진입 실패 오보고. → **전건 2026-08-18 해소, §5.1 참조.**
 단, 다음 둘은 **T0 수용 기준의 회귀 항목**으로 포함한다(B23):
 - `AppModel` `runModal()` — 앱-모달 런루프 중 FSEvents 콜백이 메인 큐에서 실행되어 모달 뒤에서 목록이 갈아엎히는 경로
 - `renameChangingCaseOnly`의 staging 파일(`.unifinder-rename-<UUID>`)이 FSEvents로 순간 노출될 수 있음
@@ -238,7 +238,85 @@ T5(FDA) — 완전 독립, 언제든 병행 가능
 
 - 진행률의 **바이트·속도 표시**(청크 단위 복사 + 사전 크기 스캔 필요) — Phase 2
 - **undo** — Phase 2 (설계 결정 #3)
-- M2 백로그 잔여 4건: `renameChangingCaseOnly` 복구 실패 보고, `runModal()` → 시트 전환, cut 클립보드 소거 타이밍, `beginRename` 진입 실패 오보고
+- ~~M2 백로그 잔여 4건: `renameChangingCaseOnly` 복구 실패 보고, `runModal()` → 시트 전환, cut 클립보드 소거 타이밍, `beginRename` 진입 실패 오보고~~ → **2026-08-18 전건 해소** (아래 §5.1)
+
+### 5.1 M2 백로그 잔여 4건 — 해소 기록 (2026-08-18)
+
+| 항목 | 조치 | 회귀 테스트 |
+|------|------|-------------|
+| `renameChangingCaseOnly` 복구 실패 은닉 | `try?`가 삼키던 복구 실패를 `FileOperationError.renameStagingStranded(stagedPath:cause:recoveryFailure:)`로 구분 보고. staging 파일은 `DirectoryLoader`가 걸러내 목록에도 안 보이므로, 남은 경로를 메시지에 실어 수동 복구가 가능하게 함. 복구 성공 경로는 기존과 동일하게 원래 rename 에러를 던진다 | `FileOperationsRenameStagingTests` (6) |
+| `runModal()` 모달 알림 | `confirmHiddenNameIfNeeded`를 `async` + `beginSheetModal(for:)`/`withCheckedContinuation`(ConflictSheetPresenter 패턴)로 전환. B23 보류는 `defer`가 아니라 `withExternalRefreshSuspended(_:)`로 감싸 **시트 완료 이후에만** 해제·flush — 시트는 런루프를 막지 않으므로 `defer`면 뜨자마자 풀린다 | `AppModelHiddenNameConfirmationTests` (5) |
+| cut 클립보드 소거 타이밍 | `if isMove` → `if isMove, !result.produced.isEmpty`. 전부 실패·취소·전량 `skipped`(같은 폴더 붙여넣기)는 클립보드 유지. 부분 성공은 비운다 — 이동된 원본을 재붙여넣으면 `sourceMissing`만 반복되므로 유지가 더 혼란스럽다 | `AppModelPasteClipboardTests` (6) |
+| `beginRename` 진입 실패 오보고 | `FileNameCellView`/`TreeNodeCellView.beginRename()`이 `nameEditor.isEditing`을 반환하도록 바꾸고, `onRenamingChanged(true)`를 **진입 성공 이후로** 이동. `SidebarTreeBridge`는 더 심해서 `updateNSView`가 호출 전에 토큰을 소비하고 있었다 — 목록 브릿지의 schedule/apply + `maxRenameAttempts` 구조를 이식 | `RenameEntryFailureTests` (7) |
+
+**부수 발견**: `M2BridgeSmokeTests.makeCoordinator`가 윈도우에 붙지 않은 테이블뷰에서 "편집 진입 성공"을 단언하고 있었다 — `beginRename`이 무조건 `true`를 돌려주던 버그 덕에 통과하던 테스트다. 헬퍼가 `NSWindow`에 붙이도록 고쳤고 기대값은 불변.
+
+**검증**: 419 unit + 1 UI 전건 통과(0 failures), Swift 컴파일 경고 0. 신규 24건, 회귀 0. 4건 각각 수정을 되돌려 해당 테스트가 실제로 실패하는지 negative control로 확인함.
+### 5.2 회귀 수정 + 메뉴 재배치 (2026-08-18 D단계)
+
+**0단계 — 재사용 노드의 `parent` 끊김 회귀** (M1부터 있던 잠복 결함)
+
+`TreeModel.rebuildSections()`는 섹션 노드를 매번 새로 만들어 `sections`를 통째로 교체하는데,
+그 아래 루트들은 `makeOrReuseFolderNode`가 옛 인덱스에서 **재사용**한다. 재사용 노드의
+`parent`(= `private(set) weak`)를 새 섹션 노드에 다시 잇지 않아, 옛 섹션이 해제되는 순간
+`parent`가 `nil`이 됐다.
+
+| 증상 | 근거 |
+|------|------|
+| 사이드바 볼륨이 디스크 아이콘 → 파란 폴더 아이콘으로 폴백 | `isVolumeRoot`가 `parent?.sectionKind == .volumes` |
+| **즐겨찾기 항목의 rename/삭제 가드가 조용히 풀림** | `isProtectedNode`가 `parent?.kind == .section` |
+
+즐겨찾기 추가/해제가 `rebuildSections()`를 상시로 부르면서 드러났다. 조치:
+
+1. `TreeNode.reattach(to:)`를 열고 `makeOrReuseFolderNode`가 재사용 노드를 돌려주기 전에 재연결한다.
+   **`parent`는 `weak`을 유지한다** — strong으로 바꾸면 `children`(strong 배열)과 순환 참조가 생겨
+   트리 전체가 누수된다(`TreeNodeReattachTests.testTreeNodes_deallocateWhenModelIsReleased`가 고정).
+2. `isProtectedNode`를 **트리 토폴로지 비의존**으로 전환. `parent?.kind == .section` 대신
+   `isProtectedURL(_:)`이 홈 루트 / 볼륨 루트 / `settings.isFavorite(url)`을 경로로 판정한다.
+   볼륨 루트 근거는 `rebuildSections()`가 `localVolumeURLs()` 결과를 `volumeRootKeys`에 담아 둔 것이다
+   (볼륨 목록을 아는 유일한 지점이고, 마운트/언마운트 통지가 전부 이 경로를 경유한다).
+   부수 효과로 판정이 **위치와 무관**해졌다 — 즐겨찾기 폴더는 홈 트리를 펼쳐 만나도 보호된다.
+
+> 기존 `TreeModelFavoritesTests.testFavoriteNode_remainsProtectedAgainstRenameAndDelete`가 이걸 못 잡은
+> 이유는 모델을 한 번만 만들어 **재사용 분기를 아예 타지 않았기** 때문이다. 회귀 테스트는
+> `rebuildSections()`를 2회 이상 거친 뒤 `isVolumeRoot`(아이콘)와 `isProtectedNode`(가드)를 **둘 다** 본다.
+
+**1단계 — Finder 구조에 맞춘 메뉴 재배치**
+
+메뉴 구성표와 배치 규칙은 UI설계 §10에 있다. 구현상 핵심은 둘이다.
+
+- **Edit 통합의 위험**: m2-impl T2의 `.disabled` 회피책이 성립하지 않는다(m2-impl 해당 항목에 취소선 표기).
+  Cut/Copy/Paste/Select All을 항상 활성으로 두고 `AppModel.editActionTarget`이 분기한다.
+  판정 근거는 `isTextEditing`(주소창·인라인 rename) **+ first responder 검사** —
+  모델이 모르는 편집기(충돌/온보딩 시트의 텍스트 필드)까지 덮기 위해서다. 예전에는 표준 Edit 메뉴가
+  받아줬지만 `.pasteboard`를 교체한 뒤로는 이 판정이 유일한 안전망이다.
+- **Move Items Here (`Opt+Cmd+V`)**: Finder에는 파일 잘라내기가 없고 `Cmd+C` 후 이 키로 이동한다.
+  UniFinder는 Win10식 `Cmd+X`를 유지한 채 진입점만 얹었다. `AppModel.moveClipboardItems(into:)`는
+  `paste(into:)`와 **같은 경로**(`performClipboardPaste` → `runOperation` → `applyOperationResult`)를 탄다
+  (T3/B9와 같은 이유 — 우회하면 직렬화·트리 무효화·폴더 소실 판정을 통째로 잃는다).
+  - **외부 클립보드에도 이동을 허용한다.** `ClipboardModel.pasteSource()`가 파스트보드 소유권을 잃으면
+    `.copy`로 강등하는 안전 기본값을 `moveSourceItems()`가 **의도적으로 뚫는 것**이다 —
+    강등은 "외부 내용에 cut 의미론을 **추론으로** 적용하지 않는다"는 규약인데, `Opt+Cmd+V`는
+    사용자가 이동을 직접 명시한 명령이라 추론이 아니다. `Cmd+V`의 강등은 그대로 남는다.
+  - **cut 소비 규칙**: `paste`와 동일한 `!result.produced.isEmpty` 게이팅을 쓰되, 판정 기준을
+    "잘라내기였는가"에서 **"원본이 그 자리에서 사라졌는가"**로 읽는다. copy 클립보드로 이동한 경우도
+    소비한다 — 남겨두면 이어지는 `Cmd+V`가 `sourceMissing`만 반복한다.
+
+**실측 확인 3건** (System Events로 실행 중인 앱의 메뉴/선택 상태를 직접 조회)
+
+| 항목 | 결과 |
+|------|------|
+| `Cmd+A` 전체 선택 생존 | `.pasteboard` 교체가 표준 `Select All`을 **걷어감**(교체 후 Edit 메뉴에 항목 1개 = 복원한 것). 복원 후 `Cmd+A`로 17행 전체 선택 확인 |
+| 텍스트 편집 왕복 | 파일 선택 상태에서 주소창 편집 중 `Cmd+C` → 파스트보드가 그대로 유지(파일 복사 미발생), 라우팅 `target=textField`. 목록 포커스에서는 `target=files`, 파스트보드가 `«class furl»`로 바뀜 |
+| `Opt+Cmd+V` 3케이스 | 내부 cut / 내부 copy / 외부(소유권 상실) 전부 `move` 1회·`copy` 0회 (`AppModelMoveItemsHereTests`) |
+
+**신규 테스트**: `TreeNodeReattachTests`(6) · `AppModelMoveItemsHereTests`(7) · `AppModelEditMenuRoutingTests`(10),
+기존 `TreeModelFavoritesTests` 1건 보강(2회 rebuild 통과 요구).
+
+**남은 수동 확인**: field editor 안에서의 실제 텍스트 잘라내기/붙여넣기 결과(주소창·인라인 rename).
+System Events 세션에서는 창이 key window가 되지 않아 어떤 텍스트 편집기에도 키 입력이 닿지 않았다
+(합성 입력의 한계이며 메뉴 라우팅과는 무관 — 라우팅은 위 표대로 검증됐다).
+
 - ~~Developer ID 서명 + hardened runtime 전환 (릴리스 직전 필수, B21)~~ → **§6으로 정식화**(빌드 구성 분리 완료, 남은 것은 인증서·공증 자격 증명 준비와 실제 수행)
 
 ## 6. 릴리스 절차 — 서명 → 공증 → stapler (B21 마무리)

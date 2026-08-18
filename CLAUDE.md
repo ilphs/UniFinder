@@ -25,11 +25,13 @@
 | 기술 스택 | macOS 14+, Swift 5.10+, SwiftUI + AppKit 하이브리드 |
 | 빌드 방법 | `xcodegen generate && xcodebuild -scheme UniFinder build` |
 | 테스트 | `xcodebuild -scheme UniFinder test` |
-| 상태 | 설계 완료, M1(읽기 전용 탐색) 구현 준비 |
+| 상태 | MVP(M1 탐색 · M2 파일조작 · M3 마감) 구현 완료 — 484 unit + 1 UI 테스트 통과 |
+| 미완 | Developer ID 인증서 부재로 **릴리스 서명·공증 미수행** (절차는 m3-impl §6) |
 
-- 설계서: `ref-docs/specs/design/unifinder-mvp-design.md` (approved)
-- 구현계획: `ref-docs/specs/impl/unifinder-m1-impl.md`
-- 네트워크 기능 제외 (설계서 비목표 참조)
+- 설계서: `ref-docs/specs/design/unifinder-mvp-design.md` (approved) · `unifinder-ui-design.md`
+- 구현계획: `ref-docs/specs/impl/unifinder-m{1,2,3}-impl.md` (M3 §5 = 후속 과제, §6 = 릴리스 절차)
+- 로컬 설치: `INSTALL.md` (ad-hoc 서명 빌드 → /Applications)
+- 네트워크 기능 제외 (설계서 비목표 참조). 검색·탭·undo·미리보기 패널은 Phase 2
 
 ### 문서 구조 (소유권 분리)
 
@@ -54,4 +56,4 @@
 
 ---
 
-*최종 업데이트: 2026-08-13*
+*최종 업데이트: 2026-08-18*
