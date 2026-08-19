@@ -163,7 +163,16 @@ main {
 .meta-line {
   color: var(--muted);
   font-size: 13px;
-  margin: 0 0 40px;
+  margin: 0 0 32px;
+}
+
+.screenshot {
+  width: 100%;
+  max-width: 640px;
+  border-radius: 12px;
+  border: 1px solid #e3e0d8;
+  box-shadow: 0 16px 40px rgba(0,0,0,.12);
+  margin-bottom: 8px;
 }
 
 section.family-app {
