@@ -77,16 +77,16 @@ xcodebuild -scheme UniFinder -configuration Release \
 
 ### 5단계 — GitHub Release 게시
 
-`gh release create v<VERSION> --title "UniFinder v<VERSION>" --notes "..." <zip경로>`
+`gh release create v<VERSION> --title "v<VERSION>" --notes "..." <zip경로>`
+
+**릴리스 이름(title)은 버전만 표기한다** — "UniFinder v0.3.0"처럼 앱 이름을 붙이지 않고 "v0.3.0"만 쓴다.
 
 **릴리스 노트는 앱을 쓰려는 사람이 읽는다.** 아래 "독자 기준"을 먼저 적용한 뒤, 다음 항목을 채운다.
 
 **릴리스 노트에 반드시 포함할 것 (매번, 예외 없이):**
 
 1. **버전별 변경 요약** — `git log --oneline <last-tag>..HEAD`와 실제 코드를 근거로 삼되, **커밋 메시지를 그대로 옮기지 않는다.** 커밋은 개발자에게 쓴 글이고 릴리스 노트는 사용자에게 쓰는 글이다. 각 항목을 "이 버전에서 무엇이 달라지는가"로 다시 쓴다(변환 방법은 "독자 기준" 참조).
-2. **설치 옵션 두 가지**:
-   - 옵션 A: 소스 빌드(`git clone` + `./scripts/install-local.sh`) — quarantine 문제 없음을 명시.
-   - 옵션 B: zip 다운로드 — **아래 quarantine 안내를 그대로 포함**.
+2. **설치 방법 — zip 다운로드** (소스 빌드 옵션은 안내하지 않는다, 2026-08-19 결정): **아래 quarantine 안내를 그대로 포함**.
 3. **quarantine/Gatekeeper 안내 — 고정 문구** (검증된 표현을 그대로 쓴다. "우클릭 → 열기"는 절대 쓰지 않는다 — 최신 macOS에서 그 경로 자체가 없다):
    ```
    처음 실행 시 "Apple이 확인할 수 없음" 경고가 뜬다 — ad-hoc 서명·미공증 앱을 브라우저로
@@ -133,7 +133,7 @@ release는 기본적으로 정식 공개 릴리스로 만든다(`--draft`/`--pre
 - ✅ "두 창에서 같은 폴더로 동시에 복사하면 확인 창이 창마다 각각 뜹니다"
 - ❌ "파일 조작 직렬화 범위가 앱 전역에서 창 단위로 축소됐습니다"
 
-설치 방법의 소스 빌드 옵션(`git clone` + `install-local.sh`)은 개발자용처럼 보이지만 **quarantine 경고를 피하는 유일한 방법**이므로 남긴다 — 다만 "이렇게 하면 경고가 뜨지 않는다"는 이유를 함께 적어 왜 이 길을 택하는지 알 수 있게 한다.
+릴리스 노트의 설치 방법은 zip 다운로드 + quarantine 안내 하나로 고정한다(2026-08-19 결정) — 소스 빌드(`git clone` + `install-local.sh`) 옵션은 릴리스 노트에 넣지 않는다.
 
 ### README의 경우
 
