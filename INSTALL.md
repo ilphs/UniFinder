@@ -128,7 +128,7 @@ rm -rf ./build-release
 # Debug 빌드 (ad-hoc 서명이 기본값이라 오버라이드 불필요)
 xcodegen generate && xcodebuild -scheme UniFinder build
 
-# 단위·통합 테스트 (565개)
+# 단위·통합 테스트 (747개)
 xcodebuild -scheme UniFinder -only-testing:UnitTests test
 
 # UI 스모크 포함 전체
