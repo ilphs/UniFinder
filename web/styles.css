@@ -54,7 +54,7 @@ body {
 }
 
 main {
-  max-width: 760px;
+  max-width: 1024px;
   margin: 0 auto;
   padding: 0 24px 80px;
 }
