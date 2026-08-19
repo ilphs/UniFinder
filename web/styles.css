@@ -166,10 +166,15 @@ main {
   margin: 0 0 32px;
 }
 
+/* height는 `height` 속성값(663px)이 남지 않도록 반드시 auto로 덮어쓴다 —
+   width만 지정하면 속성값이 살아남아 세로로 늘어난다. */
 .screenshot {
+  display: block;
   width: 100%;
-  max-width: 700px;
-  margin-bottom: 8px;
+  /* 원본(997px)을 넘겨 확대하면 흐려지므로 그 폭에서 멈춘다. */
+  max-width: 997px;
+  height: auto;
+  margin: 0 auto 8px;
 }
 
 section.family-app {
