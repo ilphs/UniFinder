@@ -9,11 +9,15 @@ import XCTest
 /// 위치로 하는 새 창을 열 수 있어야 한다. 목록에서는 파일도 우클릭 대상이 될 수 있으므로
 /// 그 경우에는 항목이 있되 **비활성**이어야 한다(트리는 애초에 폴더만 노드로 갖는다).
 ///
-/// **주의**: 기존 `M2BridgeSmokeTests.testItemContextMenu_matchesSpecOrderAndDisablesRenameOnMultipleSelection`은
-/// 목록 컨텍스트 메뉴 타이틀 배열을 정확한 순서로 하드코딩하고 있다
-/// (`["Open", "Copy", "Cut", "Rename", "Move to Trash", "Show in Finder", "Add to Favorites"]`).
-/// "Open in New Window" 항목이 그 메뉴에 추가되면 이 배열 검사가 항목 개수 불일치로 실패한다 —
-/// 리포트 참조. 여기서는 그 파일을 건드리지 않고 새 항목의 존재/활성 조건만 별도로 검증한다.
+/// **주의**: `M2BridgeSmokeTests.testItemContextMenu_matchesSpecOrderAndDisablesRenameOnMultipleSelection`이
+/// 목록 컨텍스트 메뉴 타이틀 배열을 정확한 순서로 하드코딩하고 있다. 메뉴 항목을 추가/제거하면
+/// **그 배열도 함께 고쳐야** 개수 불일치로 실패하지 않는다.
+///
+/// 2026-08-19(후속 T4·T5) 기준 최종 배열:
+/// `["Open", "Open in New Window", "Open With", "Copy", "Cut", "Rename", "Move to Trash",
+///   "Get Info", "Show in Finder", "Add to Favorites"]`
+///
+/// 여기서는 그 파일을 건드리지 않고 "Open in New Window"의 존재/활성 조건만 별도로 검증한다.
 @MainActor
 final class OpenInNewWindowMenuTests: TempDirectoryTestCase {
 

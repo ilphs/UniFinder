@@ -388,12 +388,23 @@ final class M2BridgeSmokeTests: XCTestCase {
 
         XCTAssertEqual(
             titles,
-            // 다중 창 T7 — "Open in New Window"가 "Open" 바로 아래에 추가됐다(OpenInNewWindowMenuTests 참조).
-            ["Open", "Open in New Window", "Copy", "Cut", "Rename", "Move to Trash", "Show in Finder", "Add to Favorites"]
+            // UI설계 §6 개정판 (2026-08-19, 후속 T4·T5) — 그룹이 "연다 / 바꾼다 / 본다 / 등록한다"로 재편됐다.
+            // - "Open in New Window"는 다중 창 T7에서 추가 (OpenInNewWindowMenuTests)
+            // - "Open With"는 후속 T4에서 추가 (OpenWithMenuTests)
+            // - "Get Info"는 후속 T5에서 추가, `Cmd+I`의 유일한 소유자다 (GetInfoWindowTests)
+            [
+                "Open", "Open in New Window", "Open With",
+                "Copy", "Cut", "Rename", "Move to Trash",
+                "Get Info", "Show in Finder",
+                "Add to Favorites",
+            ]
         )
 
         let rename = menu.items.first { $0.title == "Rename" }
         XCTAssertEqual(rename?.isEnabled, false, "다중 선택 시 이름 변경은 비활성이어야 함(UI설계 §6)")
+
+        let info = menu.items.first { $0.title == "Get Info" }
+        XCTAssertEqual(info?.isEnabled, false, "다중 선택 시 Get Info는 비활성이어야 함(D2 — Rename과 같은 규칙)")
     }
 
     // MARK: - 즐겨찾기 토글 (2026-08-18)

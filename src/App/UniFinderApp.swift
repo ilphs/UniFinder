@@ -32,8 +32,34 @@ struct UniFinderApp: App {
             // `AppCommands`가 `@FocusedValue`로 **활성 창의 모델**을 직접 집어간다(T6a).
             AppCommands()
         }
+
+        // **Get Info 창** (후속 T5 / D7) — 대상별로 창이 하나씩 열린다.
+        //
+        // `WindowGroup(for:)`은 **같은 값 = 같은 창**으로 취급한다. `InfoTarget`은 URL만으로
+        // 결정되는 값이라(UUID 없음) 같은 파일의 Get Info를 다시 요청하면 새 창이 생기지 않고
+        // 기존 창이 앞으로 나온다 — 정확히 우리가 원하는 동작이다(`WindowSeed`와 정반대 선택).
+        WindowGroup(id: Self.infoWindowID, for: InfoTarget.self) { $target in
+            if let target {
+                ItemInfoWindow(target: target)
+            }
+        }
+        .defaultSize(width: 420, height: 460)
+        .windowResizability(.contentMinSize)
+
+        // **디스크 용량 창** (후속 T8 / D9) — 앱 전체에 **하나뿐**이라 `WindowGroup`이 아니라 `Window`다.
+        // 볼륨 용량은 창별 상태가 아니라 머신의 사실이므로 같은 표가 여러 벌 떠 있을 이유가 없다.
+        Window("Disk Capacity", id: Self.diskCapacityWindowID) {
+            DiskUsageWindow()
+        }
+        .defaultSize(width: 480, height: 360)
     }
 
     /// 메인 창 그룹의 씬 식별자. `openWindow(id:value:)`가 이 값을 쓴다.
     static let mainWindowID = "main"
+
+    /// Get Info 창 그룹의 씬 식별자 (후속 T5).
+    static let infoWindowID = "info"
+
+    /// 디스크 용량 창의 씬 식별자 (후속 T8).
+    static let diskCapacityWindowID = "disk-capacity"
 }

@@ -48,7 +48,15 @@ targets:
     type: application
     platform: macOS
     sources:
+      # XcodeGen은 `src` 아래의 **모든 파일**을 프로젝트에 넣고, Swift가 아닌 파일은
+      # Copy Bundle Resources 단계에 붙인다. 그래서 도구가 흘린 설정 파일(`.env*`, `.vercel/`)이
+      # 폴더에 떨어지면 **앱 번들에 그대로 실려 배포된다** — 비밀 값 유출 경로다.
+      # 소스 폴더에는 소스만 들어간다는 규칙을 여기서 강제한다(2026-08-19).
       - path: src
+        excludes:
+          - ".env*"
+          - ".vercel"
+          - ".vercel/**"
       - path: resources/Assets.xcassets
     settings:
       base:

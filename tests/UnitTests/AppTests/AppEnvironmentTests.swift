@@ -155,6 +155,71 @@ final class AppEnvironmentTests: XCTestCase {
         XCTAssertFalse(env.hasOpenWindows, "마지막 창까지 닫히면 전역 자원을 정리해도 되는 시점이다")
     }
 
+    // MARK: - canPresentGlobalAlert (reviewer major #2)
+
+    /// 창이 하나도 없으면 앱 전역 알림을 그릴 곳이 없다 — 수동 업데이트 확인 결과가 소실되는 조건.
+    func testCanPresentGlobalAlert_falseWhenNoWindowsOpen() {
+        let env = makeEnvironment()
+
+        XCTAssertFalse(
+            env.canPresentGlobalAlert,
+            "창이 0개인데 알림을 띄울 수 있다고 답하면 수동 확인 결과가 화면 없이 사라진다"
+        )
+    }
+
+    func testCanPresentGlobalAlert_trueWhileAnyWindowIsOpen() {
+        let env = makeEnvironment()
+        let a = UUID()
+        let b = UUID()
+        env.register(a)
+        env.register(b)
+
+        XCTAssertTrue(env.canPresentGlobalAlert)
+
+        env.unregister(a)
+        XCTAssertTrue(env.canPresentGlobalAlert, "창이 하나라도 남아 있으면 그 창이 알림을 승계한다")
+
+        env.unregister(b)
+        XCTAssertFalse(env.canPresentGlobalAlert, "마지막 창이 닫히면 결과를 말할 수단이 없다")
+    }
+
+    /// 판정이 알림 소유 창(`globalAlertPresenterID`)과 **같은 사실**을 봐야 한다 —
+    /// 둘이 갈리면 "띄울 수 있다고 했는데 그릴 창이 없다"가 생긴다.
+    func testCanPresentGlobalAlert_agreesWithGlobalAlertPresenterID() {
+        let env = makeEnvironment()
+        XCTAssertEqual(env.canPresentGlobalAlert, env.globalAlertPresenterID != nil)
+
+        env.register(UUID())
+        XCTAssertEqual(env.canPresentGlobalAlert, env.globalAlertPresenterID != nil)
+    }
+
+    /// `Check for Updates…` 항목이 이 판정으로 비활성화되는지.
+    ///
+    /// **판정 함수를 직접 단언한다**: 진행 표시(reviewer minor #10)가 붙으면서 조건이
+    /// `CheckForUpdatesButton.isDisabled(isChecking:canPresentGlobalAlert:)`로 옮겨갔다.
+    /// 소스 문자열 비교는 조건이 하나 늘 때마다 깨지는 데다, 함수는 렌더링 없이도 부를 수 있어
+    /// 계약을 더 정확하게 고정한다. 메뉴가 실제로 그 함수를 쓰는지만 소스로 확인한다
+    /// (SwiftUI `Commands`는 단위 테스트에서 렌더링할 수 없다).
+    func testCheckForUpdatesMenuItem_isDisabledWithoutWindows() throws {
+        XCTAssertTrue(
+            CheckForUpdatesButton.isDisabled(isChecking: false, canPresentGlobalAlert: false),
+            "창이 0개일 때 Check for Updates…가 활성인 채로 남았다 — 결과가 조용히 사라진다"
+        )
+        XCTAssertFalse(
+            CheckForUpdatesButton.isDisabled(isChecking: false, canPresentGlobalAlert: true),
+            "창이 있는 정상 상태에서 항목이 비활성이면 수동 확인 자체를 할 수 없다"
+        )
+
+        let source = try String(
+            contentsOf: ProjectManifest.repositoryRoot.appendingPathComponent("src/App/AppCommands.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(
+            source.contains("canPresentGlobalAlert: environment.canPresentGlobalAlert"),
+            "메뉴 항목이 창 유무 판정을 더 이상 쓰지 않는다"
+        )
+    }
+
     // MARK: - 격리: 주입 생성자로 만든 인스턴스끼리 서로를 오염시키지 않는다
 
     /// **`AppEnvironment.shared`를 여기서 인스턴스화하지 않는다** (reviewer m5).

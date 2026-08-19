@@ -33,6 +33,10 @@ struct AppCommands: Commands {
     /// macOS 14의 Observable 전용 오버로드 — 커스텀 `FocusedValueKey`도 `Equatable` 채택도 필요 없다.
     @FocusedValue(AppModel.self) private var model: AppModel?
 
+    /// 활성 씬이 게시한 새로고침 동작 (reviewer minor #8) — Disk Usage 창처럼 `AppModel`이 없는
+    /// 창도 ⌘R을 쓸 수 있어야 하므로 모델과 **별도 채널**로 받는다.
+    @FocusedValue(\.sceneRefresh) private var sceneRefresh: SceneRefreshAction?
+
     /// 텍스트 편집 중에는 파일 조작 단축키를 비활성화한다.
     /// (Edit의 Cut/Copy/Paste/Select All은 **예외** — 위 주석 참조)
     ///
@@ -82,9 +86,17 @@ struct AppCommands: Commands {
 
             Divider()
 
-            // architect B9 — Finder 정보창을 여는 공개 API가 없어 "Show in Finder"로 대체
+            // 후속 T5 — 자체 Get Info 창. **`Cmd+I`의 유일한 소유자**다(UI설계 §10 불변식).
+            // 다중 선택에서는 비활성 — `Rename`과 같은 규칙이다(D2).
+            GetInfoButton(target: model?.infoTarget)
+                .disabled(hasNoFocusedWindow || isEditingText || model?.infoTarget == nil)
+
+            // architect B9의 승계 — followup-impl §1.2.
+            // "Finder 정보창을 여는 공개 API가 없다"는 전제는 **지금도 참**이고, 우리가 여는 것은
+            // Finder의 창이 아니라 우리 자신의 Get Info 창이다. 그래서 결론만 확장됐다:
+            // 이 항목은 유지하되 **단축키를 잃는다**(⌘I는 위 Get Info 하나만 갖는다).
+            // 단축키 하나에 항목이 둘이면 어느 쪽이 잡히는지가 메뉴 순서라는 우연에 좌우된다.
             Button("Show in Finder") { model?.revealInFinder() }
-                .keyboardShortcut("i", modifiers: .command)
                 .disabled(hasNoFocusedWindow || isEditingText || model?.directory.selection.isEmpty != false)
 
             Button("Rename") { model?.beginRenameSelection() }
@@ -149,9 +161,26 @@ struct AppCommands: Commands {
 
             Divider()
 
-            Button("Refresh") { model?.refresh() }
+            // **⌘R의 유일한 소유자**(reviewer minor #8 / ⌘I와 같은 원칙). 무엇을 새로고침할지는
+            // 활성 씬이 `sceneRefresh`로 게시한다 — 메인 창은 폴더 목록, Disk Usage 창은 볼륨 용량.
+            // 게시가 없을 때는 예전 경로(`model?.refresh()`)로 떨어진다: 이 폴백이 있어야
+            // 씬 값이 어떤 이유로든 비어도 메인 창의 ⌘R이 죽지 않는다.
+            Button("Refresh") {
+                // 활성 씬의 게시값이 우선, 없으면 활성 창의 모델로 떨어진다.
+                if let sceneRefresh {
+                    sceneRefresh()
+                } else {
+                    model?.refresh()
+                }
+            }
                 .keyboardShortcut("r", modifiers: .command)
-                .disabled(hasNoFocusedWindow)
+                .disabled(sceneRefresh == nil && hasNoFocusedWindow)
+
+            Divider()
+
+            // 후속 T8 — 디스크 용량 창. 활성 창과 무관한 앱 전역 정보라 `model`에 기대지 않는다
+            // (창이 하나도 없어도 열 수 있어야 한다).
+            DiskCapacityButton()
         }
 
         // MARK: Go — 커스텀 메뉴라 View와 Window 사이에 놓인다(= Finder 순서)
@@ -176,7 +205,17 @@ struct AppCommands: Commands {
                 .disabled(hasNoFocusedWindow)
         }
 
-        CommandGroup(replacing: .help) { }
+        // MARK: Help — 업데이트 확인 (후속 T3 / D8)
+        //
+        // 이 그룹은 예전부터 **비어 있었다**(SwiftUI 기본 "UniFinder Help"를 없애려고 교체만 해 둔 상태).
+        // 그래서 여기에 항목을 넣는 것은 잃을 것이 없다. macOS 관례상 `Check for Updates…`는
+        // 앱 메뉴(`.appInfo` 근처)에 두는 경우가 많지만, 그 영역은 About/Settings/Services/Quit이
+        // 밀집해 있어 교체 한 번에 `Quit`(⌘Q)까지 사라지는 사고가 나기 쉽다 —
+        // `.saveItem` 교체로 `Close`를 잃은 전례가 이미 있다(위 File 메뉴 주석). 리스크가 0인 자리를 택했다.
+        CommandGroup(replacing: .help) {
+            CheckForUpdatesButton()
+            AutomaticUpdateCheckToggle()
+        }
     }
 
     /// Edit의 pasteboard 액션 실행부 (다중 창 T6a).
@@ -212,5 +251,113 @@ struct NewWindowButton: View {
             openWindow(id: UniFinderApp.mainWindowID, value: WindowSeed(folderURL: folderURL))
         }
         .keyboardShortcut("n", modifiers: .command)
+    }
+}
+
+/// File > Get Info (⌘I) — 후속 T5.
+///
+/// `NewWindowButton`과 같은 이유로 별도 `View`다: `openWindow` 환경 값은 `Commands` 타입이 아니라
+/// **뷰 계층**에서 읽는 것이 Apple이 문서화한 사용법이다.
+///
+/// **`Cmd+I`는 앱 전체에서 이 항목 하나만 갖는다**(UI설계 §10 불변식). `Show in Finder`에서
+/// 이 단축키를 되살리면 AppKit이 메뉴 순서에 따라 아무 쪽이나 잡게 되어 동작이 예측 불가가 된다.
+struct GetInfoButton: View {
+
+    /// 정보를 볼 대상. `nil`이면(선택 없음·다중 선택) 항목이 비활성이다 — D2.
+    let target: URL?
+
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Get Info") {
+            guard let target else { return }
+            openWindow(id: UniFinderApp.infoWindowID, value: InfoTarget(url: target))
+        }
+        .keyboardShortcut("i", modifiers: .command)
+    }
+}
+
+/// View > Disk Capacity… — 후속 T8.
+struct DiskCapacityButton: View {
+
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Disk Capacity…") {
+            openWindow(id: UniFinderApp.diskCapacityWindowID)
+        }
+    }
+}
+
+/// Help > Check for Updates… (후속 T3).
+///
+/// **활성 창(`@FocusedValue`)에 기대지 않는다**: 업데이트 확인은 창의 상태가 아니라 앱의 상태다.
+/// 창이 하나도 없어도(Dock에서 앱만 살아 있는 상태) 눌릴 수 있어야 하므로 앱 전역 인스턴스를
+/// 직접 집는다. **참조는 `body` 안에서만** 한다 — 저장 프로퍼티로 두면 `AppCommands`가 만들어지는
+/// 순간(테스트가 씬 타입만 확인하는 경로 포함) `AppEnvironment.shared`가 깨어난다.
+///
+/// 단축키는 주지 않는다. Finder를 비롯한 macOS 앱들이 이 항목에 단축키를 두지 않고,
+/// 남는 조합을 억지로 잡으면 다른 앱과 근육기억이 어긋난다.
+/// **진행 중에는 제목이 바뀌고 비활성이 된다**(reviewer minor #10): 확인은 timeout까지
+/// 최대 10초가 걸리는데, 그동안 항목이 평소와 똑같아 보이면 사용자는 눌리지 않은 줄 알고
+/// 다시 누른다(그때마다 이전 확인이 취소되고 새 요청이 나간다). `UpdateCheckModel.isChecking`이
+/// 이 표시의 유일한 근거다.
+struct CheckForUpdatesButton: View {
+
+    var body: some View {
+        // 지역 상수로 한 번만 집는다 — `body` 밖(저장 프로퍼티)으로 나가면 안 되는 참조다.
+        let environment = AppEnvironment.shared
+        let isChecking = environment.update.isChecking
+        Button(Self.title(isChecking: isChecking)) {
+            environment.update.checkManually()
+        }
+        // **창이 0개면 결과를 표시할 곳이 없다**(reviewer major #2).
+        // 결과 알림은 소유 창의 `.alert`가 그리므로, 창이 없으면 성공/최신/실패 어느 쪽도
+        // 화면에 뜨지 않고 조용히 사라진다. 물어봐야 답할 수 없으니 항목 자체를 내린다
+        // (File/View/Go의 `hasNoFocusedWindow` 가드와 같은 패턴).
+        .disabled(Self.isDisabled(isChecking: isChecking, canPresentGlobalAlert: environment.canPresentGlobalAlert))
+    }
+
+    /// 문구·활성 판정은 **뷰를 띄우지 않고 단언할 수 있도록** 정적 함수로 뺀다
+    /// (SwiftUI `Commands`는 단위 테스트에서 렌더링할 수 없다 — `AutomaticUpdateCheckToggle.binding` 선례).
+    static func title(isChecking: Bool) -> String {
+        isChecking ? "Checking for Updates…" : "Check for Updates…"
+    }
+
+    static func isDisabled(isChecking: Bool, canPresentGlobalAlert: Bool) -> Bool {
+        isChecking || !canPresentGlobalAlert
+    }
+}
+
+/// Help > Automatically Check for Updates — 자동 확인 on/off (설계서 §1.2 경계 (d)).
+///
+/// **이 토글이 없으면 설계서가 승인한 네트워크 예외의 전제가 무너진다**: §1.2는 업데이트 확인을
+/// 예외로 허용하면서 조건 (d)로 "사용자가 끌 수 있다"를 달았다. `UpdatePreferences.autoCheckEnabled`가
+/// 값을 이미 저장하고 있었지만 그 값을 바꿀 UI가 어디에도 없어, 실질적으로는 끌 수 없는 기능이었다.
+///
+/// 자리는 `Check for Updates…` 바로 아래다 — 같은 기능의 "지금 확인"과 "앞으로도 확인"을
+/// 붙여 두는 것이 macOS 앱들의 관례이고, 설정 창이 없는 이 앱에서 유일하게 자연스러운 위치다.
+///
+/// `Toggle`은 메뉴 안에서 체크마크 항목으로 그려지므로 현재 상태(Bool)가 그대로 보인다.
+/// `Button`으로 문구를 뒤집는 방식(`Enable`/`Disable`)은 지금 상태가 켬인지 끔인지를
+/// 사용자가 문구에서 역산해야 해서 쓰지 않는다.
+struct AutomaticUpdateCheckToggle: View {
+
+    var body: some View {
+        // `CheckForUpdatesButton`과 같은 이유로 **`body` 안에서만** 공유 인스턴스를 집는다.
+        Toggle("Automatically Check for Updates", isOn: Self.binding(for: AppEnvironment.shared.update.preferences))
+    }
+
+    /// 토글 ↔ `UpdatePreferences` 연결부. **뷰를 띄우지 않고 단언할 수 있도록** 따로 뺐다
+    /// (SwiftUI `Commands`는 단위 테스트에서 렌더링할 수 없다).
+    ///
+    /// 읽기·쓰기 모두 `UpdatePreferences`를 직접 거친다 — 중간에 로컬 상태를 두면 `didSet`의
+    /// `UserDefaults` 기록이 늦어져 "껐는데 다음 실행에서 다시 켜져 있다"가 된다.
+    @MainActor
+    static func binding(for preferences: UpdatePreferences) -> Binding<Bool> {
+        Binding(
+            get: { preferences.autoCheckEnabled },
+            set: { preferences.autoCheckEnabled = $0 }
+        )
     }
 }

@@ -182,18 +182,25 @@ final class TreeModel {
 
     private var volumeObservers: [NSObjectProtocol] = []
 
+    /// 볼륨 섹션의 원본 (후속 T1 — 열거 규칙은 `VolumeService`가 소유한다).
+    private let volumeService: VolumeService
+
     /// - Parameter settings: 즐겨찾기 저장소. 테스트는 `AppSettings(defaults: UserDefaults(suiteName:))`로
     ///   격리된 인스턴스를 넘겨 실제 사용자 설정을 건드리지 않는다.
+    /// - Parameter volumeService: 볼륨 열거기. 테스트는 가짜 목록을 주입해 실제 마운트 상태에서
+    ///   자유로워진다(`FullDiskAccessModel.opener`와 같은 주입 패턴).
     init(
         loader: any DirectoryListing = DirectoryLoader.shared,
         homeURL: URL = FileManager.default.homeDirectoryForCurrentUser,
         showHidden: Bool = false,
-        settings: AppSettings? = nil
+        settings: AppSettings? = nil,
+        volumeService: VolumeService = VolumeService()
     ) {
         self.loader = loader
         self.homeURL = Self.canonicalDirectoryURL(homeURL)
         self.showHidden = showHidden
         self.settings = settings ?? AppSettings()
+        self.volumeService = volumeService
         rebuildSections()
     }
 
@@ -327,21 +334,13 @@ final class TreeModel {
             }
     }
 
+    /// 볼륨 목록은 **`VolumeService`가 유일한 권위**다 (후속 T1).
+    ///
+    /// 열거·필터 규칙을 여기에 다시 적으면 디스크 용량 창(T8)과 사이드바가 서로 다른 볼륨을
+    /// 보여주게 된다. `FileManager`의 볼륨 열거 API를 직접 부르는 곳은
+    /// **`VolumeService` 하나뿐**이어야 한다(`VolumeServiceTests`가 소스 전체를 훑어 감시한다).
     private func localVolumeURLs() -> [URL] {
-        let keys: [URLResourceKey] = [.volumeIsLocalKey, .volumeIsBrowsableKey, .volumeNameKey]
-        guard let volumes = FileManager.default.mountedVolumeURLs(
-            includingResourceValuesForKeys: keys,
-            options: [.skipHiddenVolumes]
-        ) else {
-            return [URL(fileURLWithPath: "/")]
-        }
-
-        return volumes.filter { url in
-            guard let values = try? url.resourceValues(forKeys: Set(keys)) else { return false }
-            let isLocal = values.volumeIsLocal ?? false
-            let isBrowsable = values.volumeIsBrowsable ?? true
-            return isLocal && isBrowsable
-        }.map(Self.canonicalDirectoryURL)
+        volumeService.localVolumeURLs()
     }
 
     private func displayName(for url: URL) -> String {

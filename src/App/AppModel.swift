@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import Observation
 import QuickLookUI
+import UniformTypeIdentifiers
 
 /// 윈도우 1개분의 상태를 묶어 ViewModel들을 조합한다 (설계서 §3.3 흐름의 진입점).
 ///
@@ -168,6 +169,15 @@ final class AppModel {
     /// 상태바에 5초간 띄우는 안내 문구 (UI설계 §8 — 모달 금지)
     private(set) var transientMessage: String?
     private var messageTask: Task<Void, Never>?
+
+    /// Open With 실행·후보 조회 (후속 T4). 컨텍스트 메뉴 서브메뉴와 Get Info 창이 공유한다.
+    @ObservationIgnored
+    var openWithService = OpenWithService()
+
+    /// "Other…"에서 앱을 고르는 경로 — `NSOpenPanel` 주입점(`FullDiskAccessModel.opener` 선례).
+    /// 테스트가 실제 패널을 띄우지 않게 한다. `nil`을 돌려주면 사용자가 취소한 것이다.
+    @ObservationIgnored
+    var applicationChooser: @MainActor () -> URL? = AppModel.presentApplicationOpenPanel
 
     /// `settings`/`startURL`의 기본값 생성은 MainActor 격리가 필요해 본문에서 만든다.
     ///
@@ -489,6 +499,12 @@ final class AppModel {
     ///
     /// "Open in New Window"(다중 창 T7)도 **같은 규칙**으로 대상을 해석해야 한다 —
     /// 같은 항목을 여는데 진입점에 따라 링크와 타겟으로 갈리면 안 된다.
+    ///
+    /// **예외: Get Info는 이 함수를 쓰지 않는다** (2026-08-19 / D3 · 설계서 §6 규약).
+    /// `Open`은 **의도**를 다루므로 링크를 따라가지만 Get Info는 **관찰**을 다룬다. 링크 파일의
+    /// 정보를 물은 사용자에게 타겟의 크기·날짜를 답하면 다른 질문에 답하는 것이다. 그래서
+    /// `InfoTarget`/`ItemInfoModel`은 링크를 해석하지 않고 `Original:` 행에 경로만 병기한다.
+    /// 이 예외는 `InfoTargetSymlinkTests`가 소스 수준에서까지 봉인한다.
     static func resolveTarget(of item: FileItem) -> URL {
         guard item.isSymlink else { return item.url }
         return item.url.resolvingSymlinksInPath()
@@ -558,6 +574,15 @@ final class AppModel {
         environment.isOnboardingPresenter(windowID)
     }
 
+    /// 이 창이 앱 전역 알림(업데이트 확인 결과)을 띄울 소유 창인지 (후속 T3).
+    /// 온보딩 시트와 같은 이유·같은 규칙이다 — `AppEnvironment.globalAlertPresenterID` 참조.
+    var isGlobalAlertPresenter: Bool {
+        environment.isGlobalAlertPresenter(windowID)
+    }
+
+    /// 업데이트 확인 모델 (앱 전역 공유). 메뉴/알림이 이 경유점만 쓴다.
+    var update: UpdateCheckModel { environment.update }
+
     // MARK: - 즐겨찾기 (2026-08-18 사용자 요청)
 
     /// 메뉴바 즐겨찾기 항목의 대상.
@@ -571,6 +596,18 @@ final class AppModel {
         guard let item = directory.items.first(where: { PathKey.isSame($0.url, selected) }), item.isDirectory
         else { return nil }
         return item.url
+    }
+
+    /// Get Info 창의 대상 (후속 T5 / D2).
+    ///
+    /// **선택이 정확히 1개일 때만** 값이 있다 — `canRenameSelection`과 같은 규칙이다.
+    /// 다중 선택에서 "첫 항목만" 보여주면 사용자가 고른 대상과 창의 대상이 달라 오해를 만든다.
+    /// 합계 창("N items, 총 X GB")은 다른 화면이고 이번 범위가 아니다(followup-impl §4).
+    ///
+    /// **심볼릭 링크를 해석하지 않는다**(D3) — `InfoTarget` 주석 참조.
+    var infoTarget: URL? {
+        guard directory.selection.count == 1, let selected = directory.selection.first else { return nil }
+        return directory.items.first(where: { PathKey.isSame($0.url, selected) })?.url ?? selected
     }
 
     /// 메뉴 항목을 등록/해제 중 **어느 쪽으로 띄울지** 결정하는 값 (둘 다 띄우지 않는다).
@@ -1065,9 +1102,65 @@ final class AppModel {
         createFolder(in: navigation.currentURL)
     }
 
+    // MARK: - Open With (후속 T4)
+
+    /// 컨텍스트 메뉴 Open With — **이번 한 번만** 그 앱으로 연다(기본 앱은 바뀌지 않는다).
+    ///
+    /// 대상은 **선택 전체**다(reviewer minor #6 — Finder와 같은 규칙).
+    /// 실행 실패는 상태바 메시지로 알린다(reviewer minor #7): `NSWorkspace.open`은 실패를
+    /// completion handler로만 알리는데, 예전에는 그것을 버려서 앱이 지워졌거나 손상된 경우
+    /// 사용자가 아무 반응 없는 화면만 보게 됐다.
+    func openWith(_ fileURLs: [URL], application: URL) {
+        guard !fileURLs.isEmpty else { return }
+        openWithService.open(fileURLs, with: application) { [weak self] error in
+            guard let error else { return }
+            // completion handler는 AppKit이 임의 스레드에서 부른다 — 메시지는 메인 액터의 상태다.
+            Task { @MainActor [weak self] in
+                self?.showMessage(Self.openWithFailureMessage(
+                    fileURLs: fileURLs,
+                    application: application,
+                    error: error
+                ))
+            }
+        }
+    }
+
+    /// Open With > Other… — 앱을 직접 고른 뒤 연다. 취소하면 아무 일도 하지 않는다.
+    func chooseApplicationAndOpen(_ fileURLs: [URL]) {
+        guard !fileURLs.isEmpty, let application = applicationChooser() else { return }
+        openWith(fileURLs, application: application)
+    }
+
+    /// 실행 실패 문구 (UI 문자열이라 영어). **뷰 없이 단언할 수 있도록** 정적 함수로 뺀다.
+    nonisolated static func openWithFailureMessage(fileURLs: [URL], application: URL, error: Error) -> String {
+        let applicationName = application.deletingPathExtension().lastPathComponent
+        let subject = fileURLs.count == 1
+            ? "\"\(fileURLs[0].lastPathComponent)\""
+            : "\(fileURLs.count) items"
+        return "Couldn't open \(subject) with \(applicationName): \(error.localizedDescription)"
+    }
+
+    /// `/Applications`에서 앱을 고르는 표준 패널. 실제 앱 경로에서만 쓰인다.
+    static func presentApplicationOpenPanel() -> URL? {
+        let panel = NSOpenPanel()
+        panel.title = "Choose an Application"
+        panel.prompt = "Open"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        panel.allowedContentTypes = [.application]
+        return panel.runModal() == .OK ? panel.url : nil
+    }
+
     // MARK: - Finder 위임 (M2 T7)
 
-    /// "Finder에서 보기" — Finder 정보창을 여는 공개 API가 없어 항목 선택 표시로 대체한다 (architect B9).
+    /// "Finder에서 보기" — Finder 정보창을 여는 공개 API가 없어 항목 선택 표시로 대체한다
+    /// (architect B9 → 승계: `ref-docs/specs/impl/unifinder-followup-impl.md` §1.2).
+    ///
+    /// **2026-08-19 정정**: B9의 전제("Finder 정보창을 여는 공개 API가 없다")는 지금도 참이지만,
+    /// 결론은 확장됐다 — 자체 Get Info 창이 생겼으므로 `Cmd+I`는 그쪽이 갖고 이 항목은
+    /// **단축키 없이** 남는다. 이 함수는 그대로 유지된다(Finder로 보내는 것은 여전히 유용한 조작이다).
     func revealInFinder(_ urls: [URL]? = nil) {
         let targets = urls ?? directory.selectedItems.map(\.url)
         guard !targets.isEmpty else { return }

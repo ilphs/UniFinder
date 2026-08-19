@@ -140,6 +140,24 @@ struct FileListBridge: NSViewRepresentable {
     /// 빈 영역 메뉴에는 넣지 않는다(사용자 결정: 대상이 모호해진다).
     var onOpenInNewWindow: (URL) -> Void = { _ in }
 
+    // 후속 T4·T5 — Open With / Get Info (UI설계 §6 개정판)
+
+    /// Open With 서브메뉴의 후보 조회원. 주입 가능하게 두어 테스트가 LaunchServices에 묶이지 않는다.
+    var openWithService: OpenWithService = OpenWithService()
+
+    /// "이 파일들을 저 앱으로 (이번 한 번만) 열어라" — `(파일들, 앱)`.
+    ///
+    /// **대상은 선택 전체다**(reviewer minor #6). 예전에는 활성 판정만 선택 전체를 보고
+    /// 실제로 여는 것은 우클릭한 1개였다 — 3개를 고르고 Open With를 눌러도 1개만 열렸고,
+    /// 폴더가 섞이면 열리지도 않았다. Finder는 선택 전체를 연다. 판정 범위와 실행 범위를 맞춘다.
+    var onOpenWith: ([URL], URL) -> Void = { _, _ in }
+
+    /// "Other…" — `NSOpenPanel`로 앱을 직접 고르는 경로. 대상 파일**들**을 실어 보낸다.
+    var onOpenWithOther: ([URL]) -> Void = { _ in }
+
+    /// "Get Info" — 대상 1개의 정보 창을 연다 (후속 T5). 다중 선택에서는 항목이 비활성이다.
+    var onGetInfo: (URL) -> Void = { _ in }
+
     var onBeginRename: (URL) -> Void = { _ in }
     /// 커밋 직전 동기 검증. 사유를 돌려주면 편집이 유지된다 (UI설계 §7.2).
     var onValidateRename: (URL, String) -> String? = { _, _ in nil }
@@ -343,7 +361,7 @@ struct FileListBridge: NSViewRepresentable {
     @MainActor
     /// QuickLook 프로토콜은 SDK에 `@MainActor` 표기가 없어 `@preconcurrency`로 받는다 —
     /// 실제 호출은 전부 메인 스레드(패널 UI)에서 온다.
-    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate,
+    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate,
                              @preconcurrency QLPreviewPanelDataSource, @preconcurrency QLPreviewPanelDelegate {
 
         var parent: FileListBridge
@@ -359,6 +377,22 @@ struct FileListBridge: NSViewRepresentable {
         /// `favoriteTarget`과 같은 규칙 — 클릭 시점 스냅샷이고, 폴더가 아니면 `nil`이다.
         /// 심볼릭 링크 폴더는 `AppModel.open`과 **같은 규칙**으로 타겟을 해석해 둔다.
         private(set) var newWindowTarget: URL?
+
+        /// 컨텍스트 메뉴가 겨냥한 Open With 대상 (후속 T4). **선택 전체**이고, 폴더가 섞여 있으면 비어 있다.
+        ///
+        /// **링크를 해석하지 않는다** — `Open`과 달리 여기서는 "어떤 앱으로 열지"를 고르는 중이고,
+        /// 링크를 그대로 넘겨도 LaunchServices가 타겟 기준으로 후보를 준다.
+        ///
+        /// 후보 목록은 **첫 대상** 기준으로 조회한다(reviewer minor #6): 여러 종류가 섞였을 때
+        /// 교집합을 구하면 목록이 비어 버리는 경우가 흔하고, Finder도 대표 항목 기준으로 채운다.
+        private(set) var openWithTargets: [URL] = []
+
+        /// 컨텍스트 메뉴가 겨냥한 Get Info 대상 (후속 T5). 선택이 1개가 아니면 `nil`.
+        private(set) var infoTarget: URL?
+
+        /// 지연 구성할 Open With 서브메뉴 (D5). 우클릭 때마다 LaunchServices를 조회하면
+        /// 메뉴가 뜨는 시간이 앱 목록 조회 시간만큼 밀리므로, **열릴 때** 채운다.
+        private(set) weak var openWithSubmenu: NSMenu?
 
         var appliedRevision: Int = -1
         /// 마지막으로 반영한 외부 변경 카운터 (m3-impl T0/B5).
@@ -1001,6 +1035,9 @@ struct FileListBridge: NSViewRepresentable {
             // 이전 메뉴의 대상이 남지 않게 매번 초기화한다(빈 영역 메뉴에는 즐겨찾기 항목이 없다).
             favoriteTarget = nil
             newWindowTarget = nil
+            openWithTargets = []
+            infoTarget = nil
+            openWithSubmenu = nil
 
             if row >= 0, row < items.count {
                 buildItemMenu(menu, clicked: items[row])
@@ -1026,10 +1063,28 @@ struct FileListBridge: NSViewRepresentable {
                 enabled: clicked.isDirectory
             ))
 
+            // 후속 T4 — Open With. **파일에만** 의미가 있다: 폴더를 "다른 앱으로 여는" 동작은
+            // 이 앱의 범위가 아니고, 다중 선택에 폴더가 섞이면 무엇을 어디로 보낼지가 정의되지 않는다.
+            // 서브메뉴는 **열릴 때** 채운다(D5 — `menuNeedsUpdate`).
+            //
+            // **활성 판정과 실행 대상이 같은 집합을 본다**(reviewer minor #6):
+            // 판정은 선택 전체, 실행은 클릭한 1개였던 예전 구조에서는 3개를 골라 Open With를 눌러도
+            // 1개만 열렸다. 이제 둘 다 `openWithCandidates`(= 선택 전체 + 우클릭한 항목)를 본다.
+            let openWithCandidates = self.openWithCandidates(clicked: clicked)
+            let hasFolderInSelection = openWithCandidates.contains(where: \.isDirectory)
+            openWithTargets = hasFolderInSelection ? [] : openWithCandidates.map(\.url)
+            let openWithItem = NSMenuItem(title: "Open With", action: nil, keyEquivalent: "")
+            let submenu = NSMenu(title: "Open With")
+            submenu.autoenablesItems = false
+            submenu.delegate = self
+            openWithItem.submenu = submenu
+            openWithItem.isEnabled = !hasFolderInSelection
+            openWithSubmenu = submenu
+            menu.addItem(openWithItem)
+
             menu.addItem(.separator())
             menu.addItem(makeItem("Copy", #selector(menuCopy), key: "c", modifiers: .command))
             menu.addItem(makeItem("Cut", #selector(menuCut), key: "x", modifiers: .command))
-            menu.addItem(.separator())
             menu.addItem(makeItem(
                 "Rename",
                 #selector(menuRename),
@@ -1040,8 +1095,21 @@ struct FileListBridge: NSViewRepresentable {
             ))
             menu.addItem(makeItem("Move to Trash", #selector(menuDelete), key: "\u{8}", modifiers: .command))
             menu.addItem(.separator())
-            // architect B9 — Finder 정보창을 여는 공개 API가 없어 "Show in Finder"로 대체
-            menu.addItem(makeItem("Show in Finder", #selector(menuRevealInFinder), key: "i", modifiers: .command))
+
+            // 후속 T5 — 자체 Get Info 창. `Cmd+I`의 **유일한 소유자**다(UI설계 §10 불변식).
+            // 다중 선택에서는 비활성 — `Rename`과 같은 규칙이다(D2).
+            infoTarget = selectionCount == 1 ? clicked.url : nil
+            menu.addItem(makeItem(
+                "Get Info",
+                #selector(menuGetInfo),
+                key: "i",
+                modifiers: .command,
+                enabled: selectionCount == 1
+            ))
+            // architect B9의 승계 — followup-impl §1.2: Finder 정보창을 여는 공개 API가 없다는
+            // 전제는 지금도 참이고, 우리가 여는 것은 우리 자신의 창이다. 그래서 이 항목은 남되
+            // **단축키를 갖지 않는다**(⌘I는 Get Info 하나만 갖는다).
+            menu.addItem(makeItem("Show in Finder", #selector(menuRevealInFinder), key: "", modifiers: []))
             menu.addItem(.separator())
 
             // 즐겨찾기 토글 (2026-08-18). **등록/해제 중 하나만** 띄운다 —
@@ -1107,6 +1175,67 @@ struct FileListBridge: NSViewRepresentable {
             item.target = self
             item.isEnabled = enabled
             return item
+        }
+
+        // MARK: Open With 서브메뉴 (후속 T4 / D5)
+
+        /// **열릴 때** 채운다. `makeContextMenu` 시점에 채우면 우클릭 응답이
+        /// LaunchServices 조회 시간만큼 밀린다(항목이 많은 폴더에서 체감된다).
+        func menuNeedsUpdate(_ menu: NSMenu) {
+            guard menu === openWithSubmenu else { return }
+            populateOpenWithSubmenu(menu)
+        }
+
+        /// Open With가 겨냥하는 항목들 — **선택 전체**에 우클릭한 항목을 반드시 포함시킨다.
+        ///
+        /// 우클릭은 `KeyRoutingTableView.menu(for:)`가 이미 그 행을 선택에 넣으므로 보통은
+        /// 선택과 같다. 그 경로를 타지 않는 호출(테스트·프로그램 경로)에서도 클릭한 항목이
+        /// 빠지지 않도록 여기서 한 번 더 보장한다.
+        func openWithCandidates(clicked: FileItem) -> [FileItem] {
+            var candidates = selectedItems()
+            if !candidates.contains(where: { PathKey.isSame($0.url, clicked.url) }) {
+                candidates.insert(clicked, at: 0)
+            }
+            return candidates
+        }
+
+        /// - Note: 테스트가 직접 부를 수 있게 `internal`이다(메뉴를 실제로 여는 것은 단위 테스트에서 불가능).
+        func populateOpenWithSubmenu(_ menu: NSMenu) {
+            menu.removeAllItems()
+            guard let target = openWithTargets.first else { return }
+
+            let applications = parent.openWithService.applications(for: target)
+            if applications.isEmpty {
+                // 빈 서브메뉴는 눌러도 아무 일이 없어 고장처럼 보인다 — 이유를 적은 비활성 항목을 둔다.
+                let empty = NSMenuItem(title: "No Applications Available", action: nil, keyEquivalent: "")
+                empty.isEnabled = false
+                menu.addItem(empty)
+            } else {
+                for application in applications {
+                    let title = application.isDefault ? "\(application.name) (default)" : application.name
+                    let item = makeItem(title, #selector(menuOpenWith(_:)), key: "", modifiers: [])
+                    item.representedObject = application.url
+                    menu.addItem(item)
+                }
+            }
+
+            menu.addItem(.separator())
+            menu.addItem(makeItem("Other…", #selector(menuOpenWithOther), key: "", modifiers: []))
+        }
+
+        @objc private func menuOpenWith(_ sender: NSMenuItem) {
+            guard !openWithTargets.isEmpty, let application = sender.representedObject as? URL else { return }
+            parent.onOpenWith(openWithTargets, application)
+        }
+
+        @objc private func menuOpenWithOther() {
+            guard !openWithTargets.isEmpty else { return }
+            parent.onOpenWithOther(openWithTargets)
+        }
+
+        @objc private func menuGetInfo() {
+            guard let target = infoTarget else { return }
+            parent.onGetInfo(target)
         }
 
         @objc private func menuOpen() { openSelection() }
@@ -1217,13 +1346,18 @@ struct FileListBridge: NSViewRepresentable {
         }
 
         private func openSelection() {
-            guard let tableView else { return }
-            let selected = tableView.selectedRowIndexes.compactMap { row -> FileItem? in
+            let selected = selectedItems()
+            guard !selected.isEmpty else { return }
+            parent.onOpen(selected)
+        }
+
+        /// 지금 선택된 항목들. 메뉴 활성 판정(Open With의 폴더 혼입 검사 등)이 함께 쓴다.
+        func selectedItems() -> [FileItem] {
+            guard let tableView else { return [] }
+            return tableView.selectedRowIndexes.compactMap { row -> FileItem? in
                 guard row >= 0, row < items.count else { return nil }
                 return items[row]
             }
-            guard !selected.isEmpty else { return }
-            parent.onOpen(selected)
         }
     }
 }

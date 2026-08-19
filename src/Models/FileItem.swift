@@ -14,7 +14,11 @@ struct FileItem: Identifiable, Hashable, Sendable {
     let isHidden: Bool
     /// 심볼릭 링크 자체 여부(`isDirectory`는 링크가 가리키는 대상 기준).
     let isSymlink: Bool
-    /// 폴더는 `nil` — MVP는 폴더 크기를 계산하지 않는다(설계서 §3.2).
+    /// 폴더는 **항상 `nil`**이다 (설계서 §3.2 폴더 크기 불변식 1).
+    ///
+    /// 2026-08-19(후속 T6) 정정: Get Info 창은 폴더 크기를 비동기로 계산해 보여준다
+    /// (`DirectorySizeCalculator`). 그것은 **이 값이 아니다** — 목록 열거가 하위 트리 순회를
+    /// 떠안는 순간 §5 성능 목표가 무너지므로, 목록의 "크기" 컬럼은 폴더에서 계속 `--`다.
     let size: Int64?
     let modifiedAt: Date?
     /// "종류" 컬럼에 표시할 값. `UTType.localizedDescription` 기반.

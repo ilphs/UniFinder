@@ -51,6 +51,13 @@ struct FileListPane: View {
                 onOpenInNewWindow: { url in
                     openWindow(id: UniFinderApp.mainWindowID, value: WindowSeed(folderURL: url))
                 },
+                // 후속 T4 — Open With. 후보 조회원은 모델이 소유하는 인스턴스를 그대로 넘긴다
+                // (Get Info 창의 "Open with:" 팝업과 **같은 서비스**를 써야 목록이 어긋나지 않는다).
+                openWithService: model.openWithService,
+                onOpenWith: { files, application in model.openWith(files, application: application) },
+                onOpenWithOther: { model.chooseApplicationAndOpen($0) },
+                // 후속 T5 — Get Info 창. 같은 URL이면 창이 재사용된다(`InfoTarget`이 URL 기반 값).
+                onGetInfo: { url in openWindow(id: UniFinderApp.infoWindowID, value: InfoTarget(url: url)) },
                 onBeginRename: { model.requestRename($0) },
                 onValidateRename: { model.validateRename($0, to: $1) },
                 onCommitRename: { model.rename($0, to: $1) },

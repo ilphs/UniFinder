@@ -31,6 +31,10 @@ final class AppEnvironment {
     let clipboard: ClipboardModel
     let fullDiskAccess: FullDiskAccessModel
 
+    /// 업데이트 확인 (후속 T3). **앱 전역 1개여야 하는 이유**는 위 셋과 같다 —
+    /// 창마다 두면 앱을 켤 때 창 수만큼 요청이 나가고 결과 알림도 창 수만큼 뜬다.
+    let update: UpdateCheckModel
+
     /// 열려 있는 창들 — **등록 순서를 유지**한다(온보딩 시트 소유권 승계 순서가 곧 이 순서다).
     ///
     /// `Set`이 아니라 배열인 이유: "첫 등록 창", "그 창이 닫히면 다음 창"이라는 승계 규칙에
@@ -41,11 +45,13 @@ final class AppEnvironment {
     init(
         settings: AppSettings? = nil,
         clipboard: ClipboardModel? = nil,
-        fullDiskAccess: FullDiskAccessModel? = nil
+        fullDiskAccess: FullDiskAccessModel? = nil,
+        update: UpdateCheckModel? = nil
     ) {
         self.settings = settings ?? AppSettings()
         self.clipboard = clipboard ?? ClipboardModel()
         self.fullDiskAccess = fullDiskAccess ?? FullDiskAccessModel()
+        self.update = update ?? UpdateCheckModel()
     }
 
     // MARK: - 창 수명주기
@@ -85,4 +91,29 @@ final class AppEnvironment {
     func isOnboardingPresenter(_ windowID: UUID) -> Bool {
         onboardingPresenterID == windowID
     }
+
+    /// **앱 전역 알림**(업데이트 확인 결과)을 그릴 소유 창 (후속 T3).
+    ///
+    /// 온보딩 시트와 완전히 같은 문제다: `UpdateCheckModel.presentation`은 공유 인스턴스의 값
+    /// 하나인데 `.alert`는 창마다 붙는 모디파이어라, 게이팅이 없으면 열린 창 전부가 같은 알림을
+    /// 동시에 띄운다. 규칙도 같게 둔다(첫 등록 창 → 닫히면 다음 창이 승계) — 규칙이 둘로 갈리면
+    /// "왜 이 창은 시트를 띄우고 저 창은 알림을 띄우나"를 나중에 아무도 설명하지 못한다.
+    var globalAlertPresenterID: UUID? { openWindowIDs.first }
+
+    func isGlobalAlertPresenter(_ windowID: UUID) -> Bool {
+        globalAlertPresenterID == windowID
+    }
+
+    /// **앱 전역 알림을 실제로 그릴 창이 있는지** (reviewer major #2).
+    ///
+    /// 알림은 소유 창(`globalAlertPresenterID`)의 `.alert` 모디파이어가 그린다. 창이 하나도
+    /// 없으면 소유 창도 없고, 그때 `UpdateCheckModel.presentation`에 결과를 넣어봐야 **아무 데도
+    /// 뜨지 않는다** — 사용자는 `Check for Updates…`를 눌렀는데 새 버전 안내도, 실패 안내도
+    /// 못 받는다(그 사이 상태만 남아 다음에 창을 열 때 뒤늦게 튀어나온다).
+    ///
+    /// 그래서 **결과를 말할 수 없으면 애초에 묻지도 않는다**: 창이 0개면 메뉴 항목을 비활성으로
+    /// 내린다(File/View/Go의 `hasNoFocusedWindow` 가드와 같은 패턴). 대안이던 "창이 없을 때만
+    /// `NSAlert`를 직접 띄운다"는 결과 표시 경로가 둘로 갈리고(알림 문구·버튼 구성을 두 벌
+    /// 유지해야 한다) `UpdateCheckAlertModifier`가 유일한 표시 지점이라는 규약도 깨진다.
+    var canPresentGlobalAlert: Bool { globalAlertPresenterID != nil }
 }
