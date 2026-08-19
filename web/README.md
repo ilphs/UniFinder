@@ -29,4 +29,5 @@ cd web && python3 -m http.server 8080
 ## 유지보수 시 주의
 
 - 다운로드 버튼은 특정 zip 파일명이 아니라 `/releases/latest`로 링크한다 — 버전마다 파일명이 바뀌므로(`UniFinder-X.Y.Z-macOS.zip`) 하드코딩하지 않는다
-- 버전 번호(`v0.3.0`)와 quarantine 안내 문구는 [`README.md`](../README.md) · [`INSTALL.md`](../INSTALL.md)와 동기화 — 릴리스 시 함께 확인
+- 버전 표시(`#version-tag`)는 하드코딩이 아니라 `script.js`가 GitHub Releases API(`/repos/ilphs/UniFinder/releases/latest`)에서 `tag_name`을 가져와 채운다. `index.html`의 `v0.5.0`은 스크립트가 로드되기 전(또는 API 실패 시)에만 보이는 기본값이므로, 릴리스할 때마다 갱신할 필요는 없지만 너무 오래 방치하지 않는 게 좋다
+- quarantine 안내 문구는 [`README.md`](../README.md) · [`INSTALL.md`](../INSTALL.md)와 동기화 — 절차가 바뀌면 함께 확인

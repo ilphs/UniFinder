@@ -40,4 +40,16 @@
   });
 
   applyLang(currentLang());
+
+  fetch("https://api.github.com/repos/ilphs/UniFinder/releases/latest")
+    .then(function (res) {
+      return res.ok ? res.json() : null;
+    })
+    .then(function (data) {
+      if (data && data.tag_name) {
+        var tag = document.getElementById("version-tag");
+        if (tag) tag.textContent = data.tag_name;
+      }
+    })
+    .catch(function () {});
 })();
