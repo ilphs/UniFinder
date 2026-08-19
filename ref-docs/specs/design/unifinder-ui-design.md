@@ -2,11 +2,11 @@
 id: unifinder-ui-design
 title: UniFinder UI 상세 설계 — 화면·다이얼로그·인터랙션 세부 스펙
 type: design
-version: 0.1.0
+version: 0.2.0
 status: draft
 scope: MVP 전체(M1~M3)의 화면 세부 치수·포맷·다이얼로그·에러 표시·인터랙션 규칙
-related: [unifinder-mvp-design]
-updated: 2026-08-13
+related: [unifinder-mvp-design, unifinder-followup-impl]
+updated: 2026-08-19
 ---
 
 # UniFinder UI 상세 설계
@@ -117,23 +117,75 @@ updated: 2026-08-13
 - 선택 시: `128 items | 3 selected (14.2 MB)` — 크기는 선택된 **파일** 합계, 폴더 포함 시 `(14.2 MB + 2 folders)`
 - 파일 조작 중(M2+): 우측 끝에 미니 진행 표시 `Copying… 42%` (클릭 시 진행률 팝오버)
 
-## 6. 컨텍스트 메뉴 (M2)
+## 6. 컨텍스트 메뉴 (M2 · 2026-08-19 개정)
 
 **항목 위** (다중 선택 시 해당 항목들 대상):
 
 ```
 Open                    Enter
+Open in New Window                    (폴더일 때만 활성)
+Open With             ▸               (파일일 때만 활성 — 서브메뉴)
 ─────────────────────────
 Copy                    Cmd+C
 Cut                     Cmd+X
-─────────────────────────
 Rename                  F2            (다중 선택 시 비활성)
-Move to Trash           Delete
+Move to Trash           Cmd+Delete
 ─────────────────────────
-Show in Finder          Cmd+I         (Finder 정보창 위임 — architect B9)
+Get Info                Cmd+I         (다중 선택 시 비활성 — Rename과 같은 규칙)
+Show in Finder                        (단축키 없음 — Cmd+I는 Get Info가 갖는다)
 ─────────────────────────
 Add to Favorites        Ctrl+Cmd+T    (등록돼 있으면 Remove from Favorites로 토글, 파일은 비활성)
 ```
+
+| 항목 | key | modifiers | 활성 조건 |
+|------|-----|-----------|-----------|
+| Open | `\r` | — | 항상 |
+| Open in New Window | — | — | 우클릭한 항목이 폴더 |
+| Open With ▸ | — | — | 우클릭한 항목이 파일(다중 선택에 폴더가 섞이면 비활성) |
+| Copy | `c` | ⌘ | 항상 |
+| Cut | `x` | ⌘ | 항상 |
+| Rename | `F2` | — | 선택 1개 |
+| Move to Trash | `delete` | ⌘ | 항상 |
+| Get Info | `i` | ⌘ | 선택 1개 |
+| Show in Finder | — | — | 항상 |
+| Add to Favorites | `t` | ⌃⌘ | 우클릭한 항목이 폴더 && 선택 1개 |
+
+**그룹 재설계 근거 (구분선 3개)**
+
+기존 구성은 구분선이 4개였고 `Rename`이 "복사/잘라내기" 그룹에, `Show in Finder`가 홀로 한 그룹에
+있었다. 항목이 3개 늘면서(Open With · Get Info · Show in Finder 분리) 그 배치는 그룹의 의미를 잃는다.
+지금 그룹은 **동사의 성격**으로 나뉜다:
+
+1. **연다** — Open / Open in New Window / Open With: 대상을 "여는" 세 가지 방법이 한자리에 모인다.
+2. **바꾼다** — Copy / Cut / Rename / Move to Trash: 파일시스템을 변경하는 조작.
+   `Rename`을 여기로 옮긴 이유는 그것이 "변경"이지 "열기"가 아니기 때문이다.
+3. **본다** — Get Info / Show in Finder: 대상을 바꾸지 않고 관찰하는 두 항목.
+   `Cmd+I` 이관으로 두 항목이 형제가 되었으므로 붙여 둔다.
+4. **등록한다** — Add/Remove Favorites: 앱 설정 변경이라 파일 조작과 성격이 다르다.
+
+**Open With 서브메뉴 스펙**
+
+```
+Open With ▸  ┌──────────────────────────┐
+             │ Preview  (default)       │  ← 기본 앱. 굵게 + "(default)" 접미
+             │ Xcode                    │  ← 후보 앱 (LaunchServices 순서 유지)
+             │ TextEdit                 │
+             │ ──────────────────────── │
+             │ Other…                   │  ← NSOpenPanel로 /Applications 선택
+             └──────────────────────────┘
+```
+
+- 서브메뉴는 **열릴 때 구성한다**(`NSMenuDelegate.menuNeedsUpdate`). 컨텍스트 메뉴를 만들 때마다
+  LaunchServices를 조회하면 우클릭 응답이 앱 목록 조회 시간만큼 밀린다.
+- 후보가 하나도 없으면 `No Applications Available`을 **비활성 항목**으로 하나 넣는다
+  (빈 서브메뉴는 클릭해도 아무 일이 없어 고장처럼 보인다).
+- 여기서 고른 앱은 **이번 한 번만** 그 앱으로 연다. 기본 앱 자체를 바꾸는 것은
+  Get Info 창의 "Open with:"뿐이다(§7.6 · §7.8) — 메뉴에서 무심코 시스템 기본값이 바뀌면 안 된다.
+
+트리 노드 우클릭: Open(우측 표시), Copy, Paste, Rename, Move to Trash, New Folder(하위 생성),
+Add to Favorites / Remove from Favorites(2026-08-18 — 위험 대상 가드와 무관하게 항상 활성).
+**트리 메뉴는 이번 개정에서 바뀌지 않는다** — 트리는 폴더만 다루므로 Open With가 의미 없고,
+Get Info는 목록 선택을 대상으로 하는 항목이기 때문이다.
 
 **빈 영역**:
 
@@ -197,6 +249,149 @@ An item named "README.md" already exists.
 3. 앱 활성화 시점마다 권한 재감지(보호 경로 접근 테스트) → 허용되면 시트 자동 닫힘
 4. [Later] 선택 시 접근 가능한 범위로 계속 사용 (홈 대부분은 FDA 없이도 접근 가능)
 
+### 7.6 Get Info 창 (2026-08-19)
+
+시트가 아니라 **독립 창**이다(`WindowGroup(id: "info", for: InfoTarget.self)`). 정보를 띄운 채로
+목록을 계속 탐색할 수 있어야 하고, 대상별로 창이 하나씩 열려 비교가 가능해야 하기 때문이다.
+같은 URL로 다시 열면 **기존 창이 앞으로 나온다**(`InfoTarget`은 URL 기반 값 — UUID를 넣지 않는다).
+
+```
+┌─ report.pdf Info ──────────────────────┐
+│  ┌────┐  report.pdf                    │
+│  │ 📄 │  PDF Document · 2.4 MB         │
+│  └────┘                                │
+│ ────────────────────────────────────── │
+│  Kind:        PDF Document             │
+│  Size:        2.4 MB (2,412,033 bytes) │
+│  Size on disk: 2.4 MB                  │
+│  Where:       /Users/me/Documents      │
+│  Created:     2026-08-01 09:12         │
+│  Modified:    2026-08-12 17:40         │
+│  Last opened: 2026-08-18 08:03         │
+│ ────────────────────────────────────── │
+│  Open with:  [ Preview        ▾ ]      │
+│              [ Change All… ]           │
+│ ────────────────────────────────────── │
+│  Type ID:     com.adobe.pdf            │
+│  Owner:       me (staff)               │
+│  Permissions: rw-r--r--                │
+│  Locked:      No                       │
+└────────────────────────────────────────┘
+```
+
+- **폴더 대상**: `Size:` 행이 `Calculating…` + 소형 스피너로 시작해 500ms 간격으로 갱신되고,
+  끝나면 `1.2 GB (3,481 items)`가 된다. 일부를 읽지 못했으면 뒤에
+  `(some items couldn't be read)`를 붙인다. 창을 닫으면 계산은 **즉시 취소**된다.
+- **심볼릭 링크 대상**: 링크 **자체**의 크기·날짜를 보여주고 `Original:` 행에 해석된 경로를 병기한다
+  (설계서 §6 규약 — Get Info는 관찰이라 링크를 해석하지 않는다).
+- **폴더에는 `Open with:` 섹션과 `Size on disk:` 행을 표시하지 않는다** — 폴더의 기본 앱 변경은
+  이 앱의 범위 밖이고, 폴더의 on-disk 크기는 계산하지 않는다(설계서 §3.2 불변식 3).
+- 대상이 사라졌거나 읽을 수 없으면 표 대신 한 줄 안내를 띄운다:
+  `This item is no longer available.` / `You don't have permission to read this item.`
+- 모든 행의 값은 **선택·복사 가능**(`.textSelection(.enabled)`).
+
+### 7.7 디스크 용량 창 (2026-08-19)
+
+```
+┌─ Disk Capacity ─────────────────────────────────┐
+│                                                 │
+│  Macintosh HD                        /          │
+│  ████████████████░░░░░░░░  312.4 GB free       │
+│  494.4 GB total · 182.0 GB used                 │
+│                                                 │
+│  Backup Drive                    /Volumes/USB   │
+│  ██████████████████████░░  38.1 GB free        │
+│  1.0 TB total · 961.9 GB used                   │
+│                                                 │
+│ ─────────────────────────────────────────────── │
+│  Updated 13:42                       [Refresh]  │
+└─────────────────────────────────────────────────┘
+```
+
+- **창은 앱 전체에 하나뿐**이다(`Window(id:)` — 값 없는 단일 씬). 창마다 열리면 같은 사실이
+  여러 벌 뜨는데, 볼륨 용량은 창별 상태가 아니라 **머신의 사실**이다.
+- 볼륨 목록은 사이드바와 **같은 `VolumeService`**를 쓴다 — 네트워크 볼륨은 제외된다(설계서 §1.2).
+- 여유 공간 = `volumeAvailableCapacityForImportantUsage`. 그 키를 못 읽으면
+  `volumeAvailableCapacity`로 폴백한다. 사용량 = `max(0, total - available)`로 **클램프**한다
+  (두 키의 기준이 달라 음수가 나올 수 있는데, 음수 사용량은 사용자에게 의미가 없다).
+  purgeable(정리 가능) 공간은 **별도로 노출하지 않는다** — Finder도 합쳐 보여주고, 분리하면
+  "왜 지웠는데 안 줄어드나" 같은 설명 부담만 생긴다.
+- 조회 실패한 볼륨은 행을 없애지 않고 값만 `--`로 둔다(볼륨이 사라진 것처럼 보이면 안 된다).
+- 여유 공간이 **10% 미만**이면 막대와 수치를 경고색으로 칠한다.
+- **갱신은 창을 열 때 1회 + 수동 [Refresh](⌘R)뿐이다.** 마운트/언마운트 통지를 구독하지 않는다 —
+  용량 값은 초 단위로 흔들리는데 자동 갱신은 사용자가 읽는 도중 숫자를 바꿔 놓는다.
+  대신 마지막 갱신 시각을 `Updated HH:mm`으로 항상 표시해 값의 나이를 숨기지 않는다.
+
+### 7.8 기본 앱 변경 확인 (2026-08-19)
+
+Get Info의 `Open with:` 팝업에서 앱을 고르면 **그 파일 하나**의 기본 앱이 바뀐다(확인 없음 —
+되돌리기가 같은 팝업에서 한 번에 되므로). `[Change All…]`은 **해당 파일 종류 전체**에 적용되므로
+시스템 전역 설정을 바꾸는 조작이고, 반드시 확인을 받는다:
+
+```
+Change all documents of type "PDF Document" to open with Preview?
+
+This applies to every PDF Document on this Mac, not just "report.pdf".
+
+                                   [Cancel]  [Change All]
+```
+
+- `Esc`/[Cancel] = 아무 API도 호출하지 않는다(회귀 테스트로 고정).
+- 실패하면 알림으로 사유를 보여주고 팝업 선택을 **이전 값으로 되돌린다** — 실패했는데 UI만
+  바뀌어 있으면 사용자는 바뀐 줄 안다.
+
+### 7.9 업데이트 확인 결과 (2026-08-19)
+
+세 가지 결과 모두 **알림(alert)**이다. 사용자가 명시적으로 요청한 조작의 결과이거나(수동 확인)
+행동을 요구하는 정보(새 버전)이기 때문이다.
+
+**(a) 새 버전 있음**
+
+```
+UniFinder 0.4.0 is available.
+
+You have 0.3.4.
+
+  What's New
+  ┌────────────────────────────────────┐
+  │ - Get Info window                  │
+  │ - Open With submenu                │
+  │ - Disk capacity window             │
+  └────────────────────────────────────┘
+
+           [Skip This Version]  [Later]  [Download]
+```
+
+- 릴리스 노트는 **일반 텍스트**로 보여준다(마크다운 렌더링 없음 — 원문을 그대로 신뢰하고
+  스타일 해석을 하지 않는다). 길면 스크롤한다.
+- [Download] = 릴리스 **페이지**를 기본 브라우저로 연다. 앱이 파일을 내려받거나 설치하지 않는다
+  (설계서 §1.2 예외 경계 (b)).
+- [Skip This Version] = 그 버전은 **자동 확인에서만** 침묵한다. 수동 확인은 언제나 결과를 보여준다.
+- [Later] = 아무것도 저장하지 않는다. 다음 자동 확인(24시간 스로틀) 때 다시 안내한다.
+
+**(b) 최신 버전**
+
+```
+You're up to date.
+
+UniFinder 0.3.4 is the latest version.
+
+                                              [OK]
+```
+
+**(c) 확인 실패 — 수동 확인일 때만 뜬다**
+
+```
+Couldn't check for updates.
+
+The request timed out. Check your internet connection and try again.
+
+                                              [OK]
+```
+
+- **자동 확인의 실패는 완전히 침묵한다**(로그만). 앱을 켤 때마다 네트워크 오류 알림이 뜨는 것은
+  이 앱이 애초에 네트워크 앱이 아니라는 전제(§1.2)와 정면으로 어긋난다.
+
 ## 8. 에러 표시 패턴
 
 | 상황 | 패턴 |
@@ -224,10 +419,11 @@ Finder 순서와 자동으로 일치한다.
 
 | 메뉴 | 항목 (순서대로) |
 |------|------|
-| **File** | New Folder `Cmd+Shift+N` · Open `Cmd+O` · Open Selection `Cmd+↓` · Show in Finder `Cmd+I` · Rename `F2` · Add/Remove Favorites `Ctrl+Cmd+T` · Move to Trash `Cmd+Backspace` |
+| **File** | New Window `Cmd+N` · New Folder `Cmd+Shift+N` · Open `Cmd+O` · Open Selection `Cmd+↓` · **Get Info `Cmd+I`** · **Show in Finder (단축키 없음)** · Rename `F2` · Add/Remove Favorites `Ctrl+Cmd+T` · Move to Trash `Cmd+Backspace` |
 | **Edit** | Cut `Cmd+X` · Copy `Cmd+C` · Paste `Cmd+V` · Move Items Here `Opt+Cmd+V` · Select All `Cmd+A` |
-| **View** | Show/Hide Hidden Items `Cmd+Shift+.` · Refresh `Cmd+R` |
+| **View** | Show/Hide Hidden Items `Cmd+Shift+.` · Refresh `Cmd+R` · **Disk Capacity…** |
 | **Go** | Back `Cmd+[` · Forward `Cmd+]` · Enclosing Folder `Cmd+↑` · Go to Folder… `Cmd+Shift+G` |
+| **Help** | **Check for Updates…** (2026-08-19 신설) |
 
 **배치 규칙 (실측으로 확정)**
 
@@ -245,4 +441,23 @@ Finder 순서와 자동으로 일치한다.
   항상 활성으로 두고 `AppModel.editActionTarget`이 **동작만** 분기한다.
 - `Move Items Here`는 **컨텍스트 메뉴에 넣지 않는다**. Finder도 우클릭에서는 `Opt`를 눌러야
   나타나는 숨은 항목이라 MVP 범위 밖이다.
-- 중복인 `Open`(`Cmd+O`)/`Open Selection`(`Cmd+↓`)과 `Show in Finder`의 `Cmd+I`는 현행 유지다.
+- 중복인 `Open`(`Cmd+O`)/`Open Selection`(`Cmd+↓`)은 현행 유지다.
+
+**`Cmd+I` 소유자 불변식 (2026-08-19)**
+
+- **`Cmd+I`를 단 메뉴 항목은 앱 전체에서 정확히 하나이며, 그것은 `Get Info`다.**
+  AppKit은 `Cmd` 단축키를 responder chain보다 메인 메뉴에서 먼저 찾으므로, 같은 단축키를 단
+  항목이 둘이면 어느 쪽이 잡히는지가 메뉴 순서라는 우연에 좌우된다.
+  `Show in Finder`는 항목으로 남되 **단축키를 갖지 않는다**(회귀 테스트로 고정).
+- 이 이관은 옛 `architect B9`("Finder 정보창을 여는 공개 API가 없어 Show in Finder로 대체")의
+  **전제를 부정하지 않는다.** 그 전제는 지금도 참이다 — 우리가 여는 것은 Finder의 정보창이 아니라
+  **우리 자신의 Get Info 창**이다. 즉 결론만 확장됐다: `Show in Finder`는 유지, `Cmd+I`만 이관.
+
+**`Check for Updates…`가 Help에 있는 이유**
+
+macOS 관례상 이 항목은 앱 메뉴(`UniFinder > Check for Updates…`)에 두는 경우가 많다. 그런데
+SwiftUI에서 앱 메뉴 영역은 `CommandGroup(after: .appInfo)`로 건드려야 하고, 그 그룹은
+`About`·`Settings`·`Services`·`Quit`가 밀집한 영역이라 **`Quit`(`Cmd+Q`)까지 밀려나거나 사라지는
+사고**가 나기 쉽다(같은 부류의 사고를 `.saveItem` 교체에서 이미 겪었다 — 위 배치 규칙 참조).
+반면 이 앱의 `Help` 메뉴는 `CommandGroup(replacing: .help) { }`로 **이미 비워 둔 자리**라
+새 항목을 넣어도 잃을 것이 없다. 리스크가 0인 자리를 택했다.

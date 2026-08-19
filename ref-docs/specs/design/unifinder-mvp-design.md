@@ -2,11 +2,11 @@
 id: unifinder-mvp-design
 title: UniFinder MVP 설계초안 — Win10 탐색기 스타일 2-Pane 파일 탐색기
 type: design
-version: 1.0.1
+version: 1.1.0
 status: approved
 scope: macOS용 2-pane 파일 탐색기의 MVP 범위·화면 구성·아키텍처·기술 결정
-related: []
-updated: 2026-08-13
+related: [unifinder-ui-design, unifinder-followup-impl]
+updated: 2026-08-19
 ---
 
 # UniFinder MVP 설계초안
@@ -35,7 +35,10 @@ updated: 2026-08-13
 
 ### 1.2 비목표 (명시적 제외)
 
-- **네트워크 관련 전부**: SMB/AFP/FTP 마운트, 네트워크 위치, 서버 브라우징
+- **네트워크 파일시스템 전부**: SMB/AFP/FTP 마운트, 네트워크 위치, 서버 브라우징, 네트워크 볼륨 표시
+  - *예외 1건 — 업데이트 확인 (2026-08-19 사용자 승인)*: GitHub Releases API에 HTTPS GET 1회.
+    경계 4개: (a) 읽기전용 GET (b) 릴리스 메타데이터만, 다운로드/설치 없음(브라우저 위임)
+    (c) 인증 없음 (d) 사용자가 끌 수 있음. Sparkle 등 자동업데이트 프레임워크 미채택.
 - 검색 (Phase 2)
 - 탭, 듀얼 패널(커맨더 스타일), 파일 미리보기 패널 (Phase 2+)
 - 태그, iCloud 통합, 압축/해제, 일괄 이름변경
@@ -97,8 +100,13 @@ Win10 탐색기 레이아웃을 macOS 관례와 충돌하지 않는 선에서 �
 
 ### 2.5 컨텍스트 메뉴 (우클릭)
 
-- 항목 위: 열기, 이름 변경, 복사, 잘라내기, 삭제(휴지통), 정보 보기(M2 — Finder 정보창 위임, 자체 정보창은 Phase 2)
+- 항목 위: 열기, 새 창으로 열기, **다음 프로그램으로 열기(Open With)**, 복사, 잘라내기, 이름 변경,
+  삭제(휴지통), **정보 보기(Get Info — 2026-08-19 자체 정보창)**, Finder에서 보기, 즐겨찾기 등록/해제
 - 빈 영역: 새 폴더, 붙여넣기, 새로고침, 정렬 기준
+
+> **2026-08-19 정정**: "정보 보기 = Finder 정보창 위임"은 더 이상 사실이 아니다. `Cmd+I`는 자체
+> Get Info 창이 갖고, `Show in Finder`는 **단축키 없이** 항목으로 남는다(UI설계 §6·§10 참조).
+> 상세 배열·활성 조건은 UI설계 §6이 정본이다.
 
 ### 2.6 키보드 (Win10 매핑 + macOS 관례 병행)
 
@@ -154,7 +162,8 @@ struct FileItem: Identifiable, Hashable, Sendable {
     let isDirectory: Bool
     let isHidden: Bool
     let isSymlink: Bool
-    let size: Int64?          // 폴더는 nil (MVP는 폴더 크기 미계산)
+    let size: Int64?          // 폴더는 항상 nil — 목록은 계산 안 함,
+                              // Get Info 창에서만 비동기 계산(후속 T6)
     let modifiedAt: Date?
     let typeDescription: String   // UTType 기반 "종류" 컬럼 값
 }
@@ -168,6 +177,25 @@ struct FileItem: Identifiable, Hashable, Sendable {
 ```
 
 - 디렉토리 열거는 `FileManager.contentsOfDirectory(at:includingPropertiesForKeys:)`에 필요한 resource key(`.isDirectoryKey`, `.fileSizeKey`, `.contentModificationDateKey`, `.isHiddenKey`, `.contentTypeKey`)를 **한 번에 prefetch** — 항목별 개별 stat 호출 금지 (성능 핵심)
+
+#### 폴더 크기 불변식 (2026-08-19 — Get Info 도입에 따른 정정)
+
+`FileItem.size`는 **목록 컬럼의 값**이고, Get Info 창의 크기는 **그 값이 아니다.** 둘을 섞으면
+목록 열거가 하위 트리 순회를 떠안게 되어 §5 성능 목표가 즉시 무너진다.
+
+1. `FileItem.size`는 폴더에 대해 **항상 `nil`**이다. Get Info를 붙여도 이 규칙은 바뀌지 않는다
+   (목록 "크기" 컬럼은 폴더에서 계속 `--`).
+2. Get Info의 폴더 크기는 창을 연 뒤 **백그라운드에서 재귀 합산**하고 점진적으로 갱신한다.
+   창을 닫거나 대상이 바뀌면 즉시 취소한다.
+3. **논리 크기(`.fileSizeKey`)만** 더한다. 이 불변식은 **Get Info의 폴더 크기 계산**
+   (`DirectorySizeCalculator`)에 적용된다 — 폴더 크기는 논리 크기만 쓴다(합산 정의가 둘이면
+   같은 폴더가 화면마다 다른 크기로 보인다). 개별 파일의 on-disk 크기 표시(Get Info 창의
+   "Size on disk" 행)는 이 불변식과 무관하며, 이미 prefetch된 값을 그대로 보여준다.
+4. **하드링크는 중복 계산한다.** inode 집합을 들고 다니면 100만 항목에서 메모리가 선형으로 늘고,
+   이 값은 정확한 회계가 아니라 어림값이다 — **의도된 근사**임을 코드 주석과 UI 문구로 못 박는다.
+5. **심볼릭 링크는 따라가지 않고 크기도 합산하지 않는다.** 따라가면 순환 링크에서 무한 순회하고,
+   같은 실체를 여러 번 세게 된다.
+6. 읽을 수 없는 하위(권한 등)는 **건너뛰고 계속**한다. 그 경우 결과에 불완전 표기를 붙인다.
 
 ### 3.3 주요 흐름: 폴더 이동
 
@@ -209,11 +237,21 @@ struct FileItem: Identifiable, Hashable, Sendable {
 | 100,000 항목 폴더 열기 | 첫 표시 < 3s, 스크롤 60fps 유지 |
 | 트리 노드 확장 | < 100ms (1-depth만 로드) |
 | 폴더 이동 연타 | 이전 로드 즉시 취소, UI 블로킹 0 |
+| Get Info 창 열기 | < 100ms (폴더 크기 계산 제외 — 크기는 비동기로 나중에 채운다) |
+| 폴더 크기 계산 (1만 항목) | < 1s, **백그라운드 수행 · 메인스레드 블로킹 0** |
+| 폴더 크기 계산 (10만 항목) | 500ms 간격 점진 갱신, 창을 닫거나 대상이 바뀌면 **즉시 취소** |
+| 디스크 용량 창 열기 | < 200ms (볼륨 수는 보통 한 자릿수) |
+| 업데이트 확인 | 요청 timeout 10s(리소스 20s), **UI 블로킹 0** — 실패해도 앱 동작에 영향 없음 |
 
 ## 6. 에러·엣지 케이스
 
 - **권한 없는 폴더**: 우측 pane에 "접근 권한 없음" 표시 (크래시·빈 화면 금지), FDA 미허용 시 온보딩 안내
 - **심볼릭 링크**: 표시(화살표 배지), 더블클릭 시 타겟으로 이동. 순환 링크는 트리 확장 depth 제한으로 방어
+  - **규약 (2026-08-19)**: `Open`은 **의도**를 다루므로 링크를 해석해 타겟으로 간다.
+    `Get Info`는 **관찰**을 다루므로 링크를 해석하지 않고 **링크 자체의 메타데이터**를 보여주고,
+    해석된 경로는 `Original:` 행에 병기한다. 즉 `AppModel.resolveTarget(of:)`은 Get Info 경로에서
+    쓰지 않는다 — 쓰면 "링크 파일의 크기/수정일"을 물어본 사용자에게 타겟의 값을 답하게 된다.
+    폴더 크기 계산도 링크를 따라가지 않는다(§3.2 불변식 5).
 - **표시 중 폴더가 삭제/이동됨**: 가장 가까운 존재하는 상위 폴더로 자동 이동 + 알림
 - **이름 충돌**: 복사/이동 시 덮어쓰기·건너뛰기·둘 다 유지(`name 2`) 선택 다이얼로그
 - **외장 볼륨 마운트/언마운트**: 볼륨 섹션 자동 갱신 (`NSWorkspace` 노티피케이션)
