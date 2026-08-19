@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="resources/Assets.xcassets/AppIcon.appiconset/icon_128x128@2x.png" width="128" alt="UniFinder 앱 아이콘">
+</p>
+
 # UniFinder
 
 macOS 기본 Finder 대신 쓸 수 있는, **Windows 탐색기 스타일의 2단 화면 파일 탐색기**입니다.
