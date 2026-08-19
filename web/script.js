@@ -46,9 +46,19 @@
       return res.ok ? res.json() : null;
     })
     .then(function (data) {
-      if (data && data.tag_name) {
+      if (!data) return;
+
+      if (data.tag_name) {
         var tag = document.getElementById("version-tag");
         if (tag) tag.textContent = data.tag_name;
+      }
+
+      var asset = (data.assets || []).find(function (a) {
+        return /\.zip$/i.test(a.name);
+      });
+      if (asset) {
+        var downloadBtn = document.getElementById("download-btn");
+        if (downloadBtn) downloadBtn.href = asset.browser_download_url;
       }
     })
     .catch(function () {});
