@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UniFinder — Windows 탐색기, 그 손맛 그대로</title>
+<meta name="description" content="macOS 기본 Finder 대신 쓸 수 있는 Windows 탐색기 스타일 2단 화면 파일 탐색기. 무료, macOS 14 이상.">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
+<link rel="apple-touch-icon" href="assets/icon.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="lang-toggle">
+    <button type="button" class="lang-btn" data-lang="en">EN</button>
+    <button type="button" class="lang-btn is-active" data-lang="ko">한국어</button>
+  </div>
+</header>
+
+<main>
+
+  <section class="hero">
+    <img class="hero-icon" src="assets/icon.png" alt="UniFinder 아이콘" width="96" height="96">
+    <h1>UniFinder</h1>
+    <p class="tagline" data-ko="Windows 탐색기, 그 손맛 그대로." data-en="Windows Explorer, without leaving your Mac.">Windows 탐색기, 그 손맛 그대로.</p>
+
+    <div class="pain-cards">
+      <div class="pain-card">
+        <span class="pain-icon">📁</span>
+        <span data-ko="Finder 폴더 구조가 낯설다" data-en="Finder's layout feels unfamiliar">Finder 폴더 구조가 낯설다</span>
+      </div>
+      <div class="pain-card">
+        <span class="pain-icon">🔍</span>
+        <span data-ko="파일이 어디 있는지 한눈에 안 보인다" data-en="Hard to see where a file actually is">파일이 어디 있는지 한눈에 안 보인다</span>
+      </div>
+      <div class="pain-card">
+        <span class="pain-icon">✂️</span>
+        <span data-ko="탐색기처럼 잘라내기가 안 된다" data-en="No cut-and-paste like Windows had">탐색기처럼 잘라내기가 안 된다</span>
+      </div>
+    </div>
+
+    <p class="arrow-hint" data-ko="↓ UniFinder를 열면" data-en="↓ Open UniFinder instead">↓ UniFinder를 열면</p>
+
+    <div class="highlight-banner" data-ko="왼쪽엔 폴더 트리, 오른쪽엔 파일 목록 — Windows 탐색기 그대로." data-en="A folder tree on the left, a file list on the right — exactly like Windows Explorer.">왼쪽엔 폴더 트리, 오른쪽엔 파일 목록 — Windows 탐색기 그대로.</div>
+
+    <p class="subtitle" data-ko="Windows 탐색기 스타일 2단 화면 파일 탐색기. 메뉴와 단축키는 macOS(Finder) 방식 그대로 유지됩니다." data-en="A two-pane, Windows-Explorer-style file browser for macOS. Menus and shortcuts stay native to macOS (Finder).">Windows 탐색기 스타일 2단 화면 파일 탐색기. 메뉴와 단축키는 macOS(Finder) 방식 그대로 유지됩니다.</p>
+
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/ilphs/UniFinder/releases/latest" data-ko="macOS용 다운로드" data-en="Download for macOS">macOS용 다운로드</a>
+      <a class="btn btn-secondary" href="https://github.com/ilphs/UniFinder" data-ko="GitHub에서 보기" data-en="View on GitHub">GitHub에서 보기</a>
+    </div>
+    <p class="meta-line" data-ko="v0.3.0 · 무료 · macOS 14 이상" data-en="v0.3.0 · Free · macOS 14 or later">v0.3.0 · 무료 · macOS 14 이상</p>
+  </section>
+
+  <section class="family-app">
+    <a class="family-card" href="https://uninotepad-xi.vercel.app/" target="_blank" rel="noopener">
+      <span class="family-icon">📝</span>
+      <span data-ko="마크다운 뷰어가 필요하다면 — UniNotepad" data-en="Need a Markdown viewer? — UniNotepad">마크다운 뷰어가 필요하다면 — UniNotepad</span>
+    </a>
+  </section>
+
+  <section class="quarantine">
+    <h2 data-ko="🍎 macOS에서는 첫 실행 전 터미널 한 줄이 필요합니다" data-en="🍎 On macOS, one Terminal command is needed before the first launch">🍎 macOS에서는 첫 실행 전 터미널 한 줄이 필요합니다</h2>
+    <p data-ko="이 앱은 아직 Apple 개발자 인증서 공증(notarization)을 받지 않았습니다. 그래서 GitHub Release의 zip을 내려받아 열면 macOS가 &quot;Apple이 확인할 수 없음&quot; 또는 &quot;손상되었기 때문에 열 수 없습니다&quot;라며 막습니다. 파일이 깨진 게 아니라, 인터넷에서 받은 앱에 붙는 quarantine(격리) 표시 때문입니다. 지우지 마세요."
+       data-en="This app isn't notarized by Apple yet. So the downloaded .zip from GitHub Releases gets blocked the first time you open it — macOS says it &quot;cannot be verified&quot; or &quot;is damaged.&quot; The file isn't damaged — it's the quarantine flag macOS attaches to anything downloaded from the internet. Don't delete it.">
+      이 앱은 아직 Apple 개발자 인증서 공증(notarization)을 받지 않았습니다. 그래서 GitHub Release의 zip을 내려받아 열면 macOS가 "Apple이 확인할 수 없음" 또는 "손상되었기 때문에 열 수 없습니다"라며 막습니다. 파일이 깨진 게 아니라, 인터넷에서 받은 앱에 붙는 quarantine(격리) 표시 때문입니다. 지우지 마세요.
+    </p>
+    <ol class="steps">
+      <li data-ko="내려받은 zip 압축을 풀고 UniFinder.app을 Applications 폴더로 옮깁니다." data-en="Unzip the downloaded file and move UniFinder.app into your Applications folder.">내려받은 zip 압축을 풀고 UniFinder.app을 Applications 폴더로 옮깁니다.</li>
+      <li data-ko="터미널을 열고(Spotlight ⌘ + Space → &quot;터미널&quot;) 아래 한 줄을 붙여넣고 Enter — quarantine 표시만 지우는 명령입니다." data-en="Open Terminal (Spotlight ⌘ + Space → &quot;Terminal&quot;), paste the line below, and press Enter — it only strips the quarantine flag.">터미널을 열고(Spotlight ⌘ + Space → "터미널") 아래 한 줄을 붙여넣고 Enter — quarantine 표시만 지우는 명령입니다.</li>
+    </ol>
+    <div class="code-row">
+      <code>xattr -dr com.apple.quarantine /Applications/UniFinder.app</code>
+      <button type="button" class="copy-btn" data-copy="xattr -dr com.apple.quarantine /Applications/UniFinder.app" data-ko="복사" data-en="Copy">복사</button>
+    </div>
+    <p data-ko="이제 Applications에서 UniFinder를 열면 정상적으로 실행됩니다. 한 번만 하면 되고, 나중에 새 버전 zip으로 덮어썼을 때만 같은 줄을 다시 실행하면 됩니다."
+       data-en="Now UniFinder launches normally from Applications. You only need to do this once — run the same line again only if you replace the app with a newer version.">
+      이제 Applications에서 UniFinder를 열면 정상적으로 실행됩니다. 한 번만 하면 되고, 나중에 새 버전 zip으로 덮어썼을 때만 같은 줄을 다시 실행하면 됩니다.
+    </p>
+  </section>
+
+  <section class="features">
+    <h2 data-ko="✨ 무엇이 다른가요" data-en="✨ What makes it different">✨ 무엇이 다른가요</h2>
+    <div class="feature-grid">
+      <div class="feature">
+        <span class="feature-icon">🗂️</span>
+        <h3 data-ko="두 개로 나뉜 화면" data-en="Two panes, always in sync">두 개로 나뉜 화면</h3>
+        <p data-ko="왼쪽은 폴더 트리(즐겨찾기 / 홈 / 디스크), 오른쪽은 선택한 폴더의 파일 목록. 오른쪽에서 폴더를 열면 왼쪽 트리도 자동으로 따라 펼쳐집니다."
+           data-en="A folder tree (favorites / home / disks) on the left, the selected folder's contents on the right. Open a folder on the right and the left tree expands to follow.">
+          왼쪽은 폴더 트리(즐겨찾기 / 홈 / 디스크), 오른쪽은 선택한 폴더의 파일 목록. 오른쪽에서 폴더를 열면 왼쪽 트리도 자동으로 따라 펼쳐집니다.
+        </p>
+      </div>
+      <div class="feature">
+        <span class="feature-icon">✂️</span>
+        <h3 data-ko="Windows 방식 파일 정리" data-en="File management, the Windows way">Windows 방식 파일 정리</h3>
+        <p data-ko="복사 / 잘라내기 / 붙여넣기, 그 자리에서 이름 바꾸기, 휴지통으로 이동. 마우스로 끌어다 놓아 이동·복사, Finder와도 자유롭게 주고받을 수 있습니다."
+           data-en="Copy / cut / paste, rename in place, move to Trash. Drag and drop to move or copy — freely interoperates with Finder.">
+          복사 / 잘라내기 / 붙여넣기, 그 자리에서 이름 바꾸기, 휴지통으로 이동. 마우스로 끌어다 놓아 이동·복사, Finder와도 자유롭게 주고받을 수 있습니다.
+        </p>
+      </div>
+      <div class="feature">
+        <span class="feature-icon">🪟</span>
+        <h3 data-ko="여러 창 동시 사용" data-en="Multiple windows at once">여러 창 동시 사용</h3>
+        <p data-ko="새 창을 열어 여러 폴더를 동시에 탐색할 수 있습니다. 각 창은 서로 다른 위치를 보더라도 즐겨찾기와 설정은 공유됩니다."
+           data-en="Open new windows to browse several folders at once. Each window can be somewhere different, but favorites and settings stay shared.">
+          새 창을 열어 여러 폴더를 동시에 탐색할 수 있습니다. 각 창은 서로 다른 위치를 보더라도 즐겨찾기와 설정은 공유됩니다.
+        </p>
+      </div>
+      <div class="feature">
+        <span class="feature-icon">⌨️</span>
+        <h3 data-ko="macOS 단축키는 그대로" data-en="Native macOS shortcuts">macOS 단축키는 그대로</h3>
+        <p data-ko="화면 구성만 Windows 탐색기 스타일이고, 메뉴와 단축키는 Finder와 동일합니다. Mac 사용법을 새로 배울 필요가 없습니다."
+           data-en="Only the layout borrows from Windows Explorer — menus and shortcuts stay identical to Finder. Nothing new to relearn on the Mac side.">
+          화면 구성만 Windows 탐색기 스타일이고, 메뉴와 단축키는 Finder와 동일합니다. Mac 사용법을 새로 배울 필요가 없습니다.
+        </p>
+      </div>
+      <div class="feature">
+        <span class="feature-icon">👁️</span>
+        <h3 data-ko="스페이스바 미리보기" data-en="Space-bar Quick Look">스페이스바 미리보기</h3>
+        <p data-ko="QuickLook으로 바로 미리보기. 다른 프로그램에서 파일을 바꾸면 자동으로 화면에 반영되고, USB 등 외장 디스크도 즉시 인식합니다."
+           data-en="Preview instantly with QuickLook. Changes made by other apps show up automatically, and external disks are recognized right away.">
+          QuickLook으로 바로 미리보기. 다른 프로그램에서 파일을 바꾸면 자동으로 화면에 반영되고, USB 등 외장 디스크도 즉시 인식합니다.
+        </p>
+      </div>
+      <div class="feature">
+        <span class="feature-icon">⭐</span>
+        <h3 data-ko="즐겨찾기 · 정렬" data-en="Favorites · sorting">즐겨찾기 · 정렬</h3>
+        <p data-ko="자주 쓰는 폴더를 즐겨찾기로 등록/해제. 열 제목(이름/수정일/종류/크기)을 클릭하면 정렬, 파일 이름을 입력하면 바로 해당 파일로 이동합니다."
+           data-en="Star folders you use often. Click a column header (name / modified / kind / size) to sort, or type a filename to jump straight to it.">
+          자주 쓰는 폴더를 즐겨찾기로 등록/해제. 열 제목(이름/수정일/종류/크기)을 클릭하면 정렬, 파일 이름을 입력하면 바로 해당 파일로 이동합니다.
+        </p>
+      </div>
+    </div>
+
+    <p class="not-yet" data-ko="아직 지원하지 않는 기능 — 네트워크 드라이브 접속은 지원하지 않습니다. 검색, 탭, 실행 취소, 미리보기 패널, 압축/압축 풀기, 태그 기능은 다음 업데이트에서 추가될 예정입니다."
+       data-en="Not yet supported — network drives aren't supported. Search, tabs, undo, a preview pane, archive/unarchive, and tags are planned for future updates.">
+      아직 지원하지 않는 기능 — 네트워크 드라이브 접속은 지원하지 않습니다. 검색, 탭, 실행 취소, 미리보기 패널, 압축/압축 풀기, 태그 기능은 다음 업데이트에서 추가될 예정입니다.
+    </p>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <p data-ko="© UniFinder · " data-en="© UniFinder · ">© UniFinder ·</p>
+  <a href="https://github.com/ilphs/UniFinder" data-ko="GitHub" data-en="GitHub">GitHub</a>
+  <span aria-hidden="true">·</span>
+  <a href="https://github.com/ilphs/UniFinder/blob/main/INSTALL.md" data-ko="설치 가이드" data-en="Install guide">설치 가이드</a>
+  <span aria-hidden="true">·</span>
+  <a href="https://uninotepad-xi.vercel.app/" target="_blank" rel="noopener" data-ko="UniNotepad" data-en="UniNotepad">UniNotepad</a>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>
