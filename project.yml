@@ -64,7 +64,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.unifinder.app
         GENERATE_INFOPLIST_FILE: YES
         CURRENT_PROJECT_VERSION: "1"
-        MARKETING_VERSION: "0.5.0"
+        MARKETING_VERSION: "0.6.0"
         # 앱 아이콘 — Asset Catalog 방식 (생성: scripts/make-icon.sh)
         # INFOPLIST_KEY_CFBundleIconFile은 Xcode가 지원하지 않는 키라 Info.plist에
         # 반영되지 않는다. Asset Catalog + 아래 설정이 CFBundleIconName을 자동 주입한다.
