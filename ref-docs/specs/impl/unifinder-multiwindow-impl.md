@@ -2,11 +2,11 @@
 id: unifinder-multiwindow-impl
 title: UniFinder 다중 창 구현계획서 — New Window (⌘N · 컨텍스트 메뉴)
 type: impl
-version: 1.0.0
+version: 1.1.0
 status: implemented
 scope: 단일 Window 씬 → WindowGroup 전환, 창별 AppModel, 앱 전역 상태 분리, 진입점 3종
 related: [unifinder-mvp-design, unifinder-ui-design, unifinder-m1-impl, unifinder-m2-impl, unifinder-m3-impl]
-updated: 2026-08-18
+updated: 2026-08-20
 ---
 
 # UniFinder 다중 창 구현계획서 — New Window
@@ -16,7 +16,7 @@ updated: 2026-08-18
 - **입력**: MVP(M1·M2·M3) 완료 상태의 실제 코드베이스, `unifinder-m3-impl` §5(후속 과제)
 - **목표**: 창을 여러 개 열 수 있게 한다. 창마다 **독립된 탐색·트리·히스토리**를 갖고,
   앱 전역이어야 하는 상태(설정·클립보드·FDA)는 창을 넘어 하나로 유지한다.
-- **하지 않는 것**: 탭(macOS 기본 창 탭에 위임), 창 간 상태 복원 정밀화, 창별 설정 분리
+- **하지 않는 것**: 탭(macOS 기본 창 탭에 위임했다가 2026-08-20 껐다 — §4.2), 창 간 상태 복원 정밀화, 창별 설정 분리
 
 ### 확정된 사용자 결정
 
@@ -199,11 +199,43 @@ func shouldShowBanner(isPresenter: Bool) -> Bool {
 
 전역 직렬화가 필요해지면 `AppEnvironment`에 조작 큐를 올리는 것이 그때의 정답이다.
 
-### 4.2 macOS 창 탭이 자동으로 활성화된다
+### 4.2 macOS 창 탭 — 자동 활성화 후 껐다 (2026-08-20 뒤집음)
 
-`WindowGroup`이 되면 macOS가 Window 메뉴에 `Merge All Windows` / `Show Tab Bar`를 자동으로
-넣는다. 별도 구현 없이 얻는 기능이라 그대로 둔다(탭은 Phase 2 항목이었는데 OS 기본 동작으로
-부분 충족된다). 앱이 그리는 탭이 아니므로 툴바·주소창은 창 단위 그대로다.
+**원래 결정(2026-08-18)**: `WindowGroup`이 되면 macOS가 Window 메뉴에 `Merge All Windows` /
+`Show Tab Bar`를 자동으로 넣는다. 별도 구현 없이 얻는 기능이라 그대로 두었다(탭은 Phase 2
+항목이었는데 OS 기본 동작으로 부분 충족된다고 봤다).
+
+**뒤집은 이유(2026-08-20 실측)**: 실제 사용자 요청("New Tab 메뉴·단축키, 탭바 상시 표시,
+탭에 경로 명시")을 검토하며 앱을 직접 띄워 확인하니 세 가지가 `WindowGroup` 자동 탭의
+**구조적 한계**로 막혀 있었다.
+
+1. **탭 제목이 전부 "UniFinder"다.** SwiftUI `WindowGroup`은 창 제목을 앱 이름으로 고정하고
+   탭 제목은 창 제목을 그대로 따른다. 탭을 여러 개 열면 어느 탭이 어느 폴더인지 구분할 수 없다.
+2. **새 탭은 항상 홈에서 열린다.** 탭바의 `+`는 `WindowGroup`의 기본값 생성 경로
+   (`defaultValue:`)를 타는데, 그 경로에는 "현재 창의 폴더를 시드로 넘겨라"를 끼워 넣을 지점이
+   없다. `WindowSeed`는 ⌘N에서만 명시적으로 채워진다(§1.1 "⌘N 초기 폴더 = 현재 창의 폴더").
+   결과적으로 ⌘N(현재 폴더)과 `+`(항상 홈)의 동작이 어긋난다.
+3. **탭바 표시 자체가 사용자의 시스템 설정(일반 > 탭으로 열기)에 좌우된다.** 기본 설정 머신
+   에서는 탭바가 처음부터 숨어 있어 `+` 버튼조차 보이지 않는다 — 이 기능이 있는지 없는지가
+   앱이 아니라 macOS 환경설정에 달려 있었다.
+
+세 가지 모두 "아직 완성 안 됨"이 아니라 SwiftUI가 제공하는 자동 탭 메커니즘 자체의 한계다.
+제목·시작 폴더까지 잡으려면 창 생성 시점에 AppKit으로 개입해야 한다(`NSWindow.tabbingMode`
+/ `addTabbedWindow(_:ordered:)`). 그러려면 SwiftUI의 `openWindow`가 "이 창을 앞 창의 탭
+그룹에 넣어라"를 지정할 수 없다는 것부터 우회해야 하고, 그 우회가 성립하려면 결국 `AppModel`이
+"창 1개 = 탭 1개"에서 "창 셸 + 탭별 세션"으로 갈라져야 한다 — §2에서 뒤집은 "창 1개 =
+`AppModel` 1개" 전제(직렬화 범위 §직렬화 범위, `focusedSceneValue` 라우팅 §T6a, onboarding
+presenter 판정 §T4가 전부 여기 기댄다) 전체를 다시 설계하는 규모다.
+
+**어중간한 상태로 남겨두는 대가**(탭 제목 오해·"새 탭이 왜 홈에서 열리나" 문의·설정 의존적
+표시)가 지금 얻는 것(창 여러 개를 하나로 묶는 것 하나)보다 크다고 판단해 **껐다**:
+`UniFinderApp.init()`에서 `NSWindow.allowsAutomaticWindowTabbing = false`.
+`WindowTabbingDisabledTests`가 회귀를 봉인한다. 앱이 그리는 탭이 아니었으므로 툴바·주소창은
+원래도 창 단위였고 이 결정으로 바뀌는 것은 없다.
+
+**탭을 다시 하려면**: 이 플래그를 지우는 것으로는 위 세 문제 중 어느 것도 풀리지 않는다.
+창 생성 파이프라인을 AppKit으로 가져와 제목·시작 폴더를 함께 잡는 별도 작업으로 새로
+설계할 것 — 규모는 위 문단 참조.
 
 ### 4.3 컬럼 폭 / 사이드바 폭은 last-writer-wins
 
@@ -345,4 +377,4 @@ xcodebuild -scheme UniFinder test
 | 5 | 창 2개 중 하나를 닫고 남은 창에서 탐색/붙여넣기 | 정상 동작(감시자가 살아 있다) |
 | 6 | 창 A에서 QuickLook(Space) 후 창 B를 닫음 | A의 미리보기 패널이 닫히지 않는다 |
 | 7 | FDA 미허용 상태로 창 2개 | 시트는 한 창에만 뜨고 배너는 두 창 모두 |
-| 8 | Window > Merge All Windows | 창 탭으로 합쳐진다(§4.2) |
+| 8 | Window 메뉴 확인 | `Merge All Windows`/`Show Tab Bar` 항목이 없다(2026-08-20 §4.2 — 탭 껐음) |

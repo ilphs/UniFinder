@@ -1,8 +1,39 @@
+import AppKit
 import SwiftUI
 
 @main
 @MainActor
 struct UniFinderApp: App {
+
+    /// **창 탭을 껐다** (2026-08-20, multiwindow-impl §4.2 뒤집기).
+    ///
+    /// `WindowGroup`을 쓰면 macOS가 창 탭(Window > Merge All Windows)을 자동으로 붙여준다.
+    /// M3에서는 "탭은 Phase 2 항목인데 OS 기본 동작으로 공짜로 얻는다"며 수용했지만, 실측
+    /// (2026-08-20)해 보니 세 가지가 구조적으로 막혀 있었다:
+    ///
+    /// - **탭 제목이 전부 "UniFinder"다** — SwiftUI `WindowGroup`은 창 제목을 앱 이름으로
+    ///   고정하고, 탭 제목은 창 제목을 그대로 따른다. 탭을 4개 열면 어느 탭이 어느 폴더인지
+    ///   구분할 방법이 없다.
+    /// - **새 탭은 항상 홈에서 열린다** — 탭바의 `+`는 `WindowGroup`의 기본값 생성 경로를 타고,
+    ///   그 경로에는 "현재 창의 폴더를 시드로 넘겨라"를 끼워 넣을 지점이 없다(`WindowSeed`는
+    ///   ⌘N에서만 명시적으로 채워진다). ⌘N(현재 폴더)과 `+`(항상 홈)의 동작이 어긋난다.
+    /// - **탭바 표시 자체가 사용자의 시스템 설정(`일반 > 탭으로 열기`)에 좌우된다** — 기본 설정
+    ///   머신에서는 탭바가 처음부터 숨어 있어 `+` 버튼조차 보이지 않는다. 즉 이 기능이 있는지
+    ///   없는지가 우리가 아니라 macOS 환경설정에 달려 있었다.
+    ///
+    /// 셋 다 "탭이 아직 완성되지 않았다"가 아니라 SwiftUI `WindowGroup` 자동 탭의 **구조적 한계**다.
+    /// 제목·시작 폴더까지 잡으려면 창 생성 시점에 AppKit으로 개입해야 하고(`addTabbedWindow` 등),
+    /// 그러면 `AppModel`이 "창 1개 = 탭 1개"에서 "창 셸 + 탭별 세션"으로 갈라져야 한다 — 다중 창
+    /// T3/T6a가 세운 "창 1개 = `AppModel` 1개" 전제(직렬화 범위·`focusedSceneValue` 라우팅·
+    /// onboarding presenter 판정이 전부 여기 기댄다) 전체를 다시 설계해야 하는 규모다.
+    ///
+    /// 어중간한 상태로 있는 것의 대가(제목 오해·"새 탭이 왜 홈에서 열리나" 문의·설정 의존적 표시)가
+    /// 지금 얻는 것(창 여러 개를 하나로 묶는 것 하나)보다 크다고 판단해 껐다. **탭을 다시 하려면**
+    /// 이 플래그를 지우는 대신, 창 생성 파이프라인을 AppKit으로 가져와 제목·시작 폴더를 함께
+    /// 잡는 별도 작업으로 다시 설계할 것 — `NSWindow.tabbingMode`/`addTabbedWindow` 경로다.
+    init() {
+        NSWindow.allowsAutomaticWindowTabbing = false
+    }
 
     var body: some Scene {
         // **다중 창 (T4)** — `Window` 단일 씬에서 `WindowGroup`으로 전환한다.
@@ -18,8 +49,8 @@ struct UniFinderApp: App {
         // `defaultValue:` 오버로드라 **런치 창은 시드가 `nil`이 아니라 홈 시드**로 뜬다 —
         // 여기서 창이 안 뜨면 UI 스모크(`NavigationSmokeUITests`)가 첫 단언에서 무너진다.
         //
-        // **부수 효과**: `WindowGroup`이 되면 macOS가 창 탭(Window > Merge All Windows)을
-        // 자동으로 활성화한다. 의도된 수용 사항이다(multiwindow-impl §창 탭).
+        // **창 탭은 껐다** (위 `init()` 참조) — `WindowGroup`을 쓰는 이유는 시드 기반 창 생성이지
+        // 탭이 아니다.
         WindowGroup(id: Self.mainWindowID, for: WindowSeed.self) { $seed in
             MainWindowRoot(seed: seed)
         } defaultValue: {

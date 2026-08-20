@@ -30,7 +30,7 @@
 
 - 설계서: `ref-docs/specs/design/unifinder-mvp-design.md` (approved) · `unifinder-ui-design.md`
 - 구현계획: `ref-docs/specs/impl/unifinder-m{1,2,3}-impl.md` (M3 §5 = 후속 과제, §6 = 릴리스 절차)
-- 다중 창: `ref-docs/specs/impl/unifinder-multiwindow-impl.md` — 창별 `AppModel` vs 전역 `AppEnvironment`, §4 수용된 트레이드오프(조작 직렬화가 **창 단위**로 축소됨 등)
+- 다중 창: `ref-docs/specs/impl/unifinder-multiwindow-impl.md` — 창별 `AppModel` vs 전역 `AppEnvironment`, §4 수용된 트레이드오프(조작 직렬화가 **창 단위**로 축소됨 등), §4.2는 2026-08-20 창 탭 자동 활성화 → 제외로 뒤집힘
 - 볼륨 Eject·상태바 여유 공간: `ref-docs/specs/impl/unifinder-eject-diskspace-impl.md` — D-E1~D-E6 판정표, §4 수용된 트레이드오프(`.allPartitionsAndEjectDisk`가 같은 디스크의 다른 파티션까지 내림 등)
 - 후속 4종: `ref-docs/specs/impl/unifinder-followup-impl.md` — D1~D10 판정표, §1.2 B9 승계(⌘I만 Get Info로 이관), §4 수용된 트레이드오프(다중 선택 Get Info 비활성 등)
 - 로컬 설치: `INSTALL.md` (ad-hoc 서명 빌드 → /Applications)
