@@ -54,7 +54,7 @@
       }
 
       var asset = (data.assets || []).find(function (a) {
-        return /\.zip$/i.test(a.name);
+        return /\.dmg$/i.test(a.name);
       });
       if (asset) {
         var downloadBtn = document.getElementById("download-btn");

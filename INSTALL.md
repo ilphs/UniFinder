@@ -33,9 +33,9 @@ sudo xcodebuild -license accept
 ./scripts/install-local.sh
 ```
 
-### GitHub Release의 zip으로 받았다면
+### GitHub Release의 dmg로 받았다면
 
-[Releases](https://github.com/ilphs/UniFinder/releases)에서 받은 `.zip`은 브라우저가 quarantine 표시를 붙이므로, 압축을 풀어 `/Applications`로 옮긴 뒤 **처음 실행 시 "Apple이 확인할 수 없음" 경고가 뜬다.** 소스 빌드(위 스크립트)에는 없는, zip 다운로드에만 있는 문제다.
+[Releases](https://github.com/ilphs/UniFinder/releases)에서 받은 `.dmg`는 브라우저가 quarantine 표시를 붙이므로, 더블클릭으로 열어 UniFinder.app을 `/Applications`로 드래그한 뒤 **처음 실행 시 "Apple이 확인할 수 없음" 경고가 뜬다.** 소스 빌드(위 스크립트)에는 없는, dmg 다운로드에만 있는 문제다.
 
 **우클릭 → 열기는 최신 macOS에서 통하지 않는다** — 이 경고 다이얼로그에는 "열기" 버튼 자체가 없다. 터미널에서 quarantine 표시를 지워야 한다:
 ```bash
@@ -169,7 +169,7 @@ log show --predicate 'process == "UniFinder"' --last 5m --info
 ```
 
 **"Apple이 확인할 수 없음" / "손상되었기 때문에 열 수 없습니다" 경고**
-직접 빌드한 앱에는 보통 발생하지 않는다(quarantine 없음). GitHub Release의 zip으로 받았거나 다른 경로로 복사해 quarantine이 붙은 경우 — §2 참조:
+직접 빌드한 앱에는 보통 발생하지 않는다(quarantine 없음). GitHub Release의 dmg로 받았거나 다른 경로로 복사해 quarantine이 붙은 경우 — §2 참조:
 ```bash
 xattr -dr com.apple.quarantine /Applications/UniFinder.app
 ```

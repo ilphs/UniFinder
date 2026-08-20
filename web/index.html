@@ -65,21 +65,21 @@
 
   <section class="quarantine">
     <h2 data-ko="🍎 macOS에서는 첫 실행 전 터미널 한 줄이 필요합니다" data-en="🍎 On macOS, one Terminal command is needed before the first launch">🍎 macOS에서는 첫 실행 전 터미널 한 줄이 필요합니다</h2>
-    <p data-ko="이 앱은 아직 Apple 개발자 인증서 공증(notarization)을 받지 않았습니다. 그래서 GitHub Release의 zip을 내려받아 열면 macOS가 &quot;Apple이 확인할 수 없음&quot; 또는 &quot;손상되었기 때문에 열 수 없습니다&quot;라며 막습니다. 파일이 깨진 게 아니라, 인터넷에서 받은 앱에 붙는 quarantine(격리) 표시 때문입니다. 지우지 마세요."
-       data-en="This app isn't notarized by Apple yet. So the downloaded .zip from GitHub Releases gets blocked the first time you open it — macOS says it &quot;cannot be verified&quot; or &quot;is damaged.&quot; The file isn't damaged — it's the quarantine flag macOS attaches to anything downloaded from the internet. Don't delete it.">
-      이 앱은 아직 Apple 개발자 인증서 공증(notarization)을 받지 않았습니다. 그래서 GitHub Release의 zip을 내려받아 열면 macOS가 "Apple이 확인할 수 없음" 또는 "손상되었기 때문에 열 수 없습니다"라며 막습니다. 파일이 깨진 게 아니라, 인터넷에서 받은 앱에 붙는 quarantine(격리) 표시 때문입니다. 지우지 마세요.
+    <p data-ko="이 앱은 아직 Apple 개발자 인증서 공증(notarization)을 받지 않았습니다. 그래서 GitHub Release의 dmg를 내려받아 열면 macOS가 &quot;Apple이 확인할 수 없음&quot; 또는 &quot;손상되었기 때문에 열 수 없습니다&quot;라며 막습니다. 파일이 깨진 게 아니라, 인터넷에서 받은 앱에 붙는 quarantine(격리) 표시 때문입니다. 지우지 마세요."
+       data-en="This app isn't notarized by Apple yet. So the downloaded .dmg from GitHub Releases gets blocked the first time you open it — macOS says it &quot;cannot be verified&quot; or &quot;is damaged.&quot; The file isn't damaged — it's the quarantine flag macOS attaches to anything downloaded from the internet. Don't delete it.">
+      이 앱은 아직 Apple 개발자 인증서 공증(notarization)을 받지 않았습니다. 그래서 GitHub Release의 dmg를 내려받아 열면 macOS가 "Apple이 확인할 수 없음" 또는 "손상되었기 때문에 열 수 없습니다"라며 막습니다. 파일이 깨진 게 아니라, 인터넷에서 받은 앱에 붙는 quarantine(격리) 표시 때문입니다. 지우지 마세요.
     </p>
     <ol class="steps">
-      <li data-ko="내려받은 zip 압축을 풀고 UniFinder.app을 Applications 폴더로 옮깁니다." data-en="Unzip the downloaded file and move UniFinder.app into your Applications folder.">내려받은 zip 압축을 풀고 UniFinder.app을 Applications 폴더로 옮깁니다.</li>
+      <li data-ko="내려받은 dmg 파일을 열고, 뜨는 창에서 UniFinder 아이콘을 Applications 폴더로 드래그합니다." data-en="Open the downloaded .dmg file and drag the UniFinder icon into the Applications folder shown in the window.">내려받은 dmg 파일을 열고, 뜨는 창에서 UniFinder 아이콘을 Applications 폴더로 드래그합니다.</li>
       <li data-ko="터미널을 열고(Spotlight ⌘ + Space → &quot;터미널&quot;) 아래 한 줄을 붙여넣고 Enter — quarantine 표시만 지우는 명령입니다." data-en="Open Terminal (Spotlight ⌘ + Space → &quot;Terminal&quot;), paste the line below, and press Enter — it only strips the quarantine flag.">터미널을 열고(Spotlight ⌘ + Space → "터미널") 아래 한 줄을 붙여넣고 Enter — quarantine 표시만 지우는 명령입니다.</li>
     </ol>
     <div class="code-row">
       <code>xattr -dr com.apple.quarantine /Applications/UniFinder.app</code>
       <button type="button" class="copy-btn" data-copy="xattr -dr com.apple.quarantine /Applications/UniFinder.app" data-ko="복사" data-en="Copy">복사</button>
     </div>
-    <p data-ko="이제 Applications에서 UniFinder를 열면 정상적으로 실행됩니다. 한 번만 하면 되고, 나중에 새 버전 zip으로 덮어썼을 때만 같은 줄을 다시 실행하면 됩니다."
-       data-en="Now UniFinder launches normally from Applications. You only need to do this once — run the same line again only if you replace the app with a newer version.">
-      이제 Applications에서 UniFinder를 열면 정상적으로 실행됩니다. 한 번만 하면 되고, 나중에 새 버전 zip으로 덮어썼을 때만 같은 줄을 다시 실행하면 됩니다.
+    <p data-ko="이제 Applications에서 UniFinder를 열면 정상적으로 실행됩니다. 한 번만 하면 되고, 나중에 새 버전 dmg로 설치했을 때만 같은 줄을 다시 실행하면 됩니다."
+       data-en="Now UniFinder launches normally from Applications. You only need to do this once — run the same line again only if you install a newer version.">
+      이제 Applications에서 UniFinder를 열면 정상적으로 실행됩니다. 한 번만 하면 되고, 나중에 새 버전 dmg로 설치했을 때만 같은 줄을 다시 실행하면 됩니다.
     </p>
   </section>
 

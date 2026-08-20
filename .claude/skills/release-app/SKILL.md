@@ -1,6 +1,6 @@
 ---
 name: release-app
-description: UniFinder를 새 버전으로 릴리스한다 — 버전 번호 확정, README.md·INSTALL.md 갱신, 전체 테스트 검증, ad-hoc 서명 Release 빌드, zip 패키징, git 태그, GitHub Release 게시(quarantine/Gatekeeper 안내를 매번 포함, 릴리스 노트·README는 개발자가 아닌 일반 사용자 눈높이로 작성)까지 한 파이프라인으로 수행한다. "릴리스해줘", "릴리즈 하고 싶어", "버전 올려줘", "0.x.0 배포", "release 만들어줘", "새 버전 내보내줘" 등 앱을 배포 가능한 형태로 내보내려는 요청에 사용한다. 단순 버전 번호만 바꾸는 요청(project.yml 수정만)이나, 코드 변경 없이 문서만 고치는 요청에는 쓰지 않는다.
+description: UniFinder를 새 버전으로 릴리스한다 — 버전 번호 확정, README.md·INSTALL.md 갱신, 전체 테스트 검증, ad-hoc 서명 Release 빌드, DMG 패키징(create-dmg, Applications 드래그 설치), git 태그, GitHub Release 게시(quarantine/Gatekeeper 안내를 매번 포함, 릴리스 노트·README는 개발자가 아닌 일반 사용자 눈높이로 작성)까지 한 파이프라인으로 수행한다. "릴리스해줘", "릴리즈 하고 싶어", "버전 올려줘", "0.x.0 배포", "release 만들어줘", "새 버전 내보내줘" 등 앱을 배포 가능한 형태로 내보내려는 요청에 사용한다. 단순 버전 번호만 바꾸는 요청(project.yml 수정만)이나, 코드 변경 없이 문서만 고치는 요청에는 쓰지 않는다.
 ---
 
 # release-app — UniFinder 릴리스 파이프라인
@@ -57,12 +57,22 @@ xcodebuild -scheme UniFinder -configuration Release \
 - `project.yml`을 이 목적으로 수정하지 않는다(`ReleaseSigningConfigurationTests`가 깨지고 실제 배포 서명이 빠진다) — `INSTALL.md` §3 "왜 서명을 오버라이드하는가"와 같은 이유.
 - 빌드 산출물에서 버전(`plutil -p .../Info.plist | grep CFBundleShortVersionString`)과 서명(`codesign -dv`, `Signature=adhoc` 예상)을 **실측으로 확인**한다.
 - Developer ID 인증서가 사전 조건 확인에서 발견됐다면(사용자에게 물어) 이 단계 대신 정식 서명 + 공증 절차(`ref-docs/specs/impl/unifinder-m3-impl.md` §6)로 전환한다.
-- 패키징:
+- **패키징 — DMG (2026-08-20부터, `create-dmg` 사용)**: `brew list create-dmg`로 설치 여부를 먼저 확인하고 없으면 `brew install create-dmg`. Applications 폴더로 드래그해 설치하는 macOS 표준 관례를 따른다(zip은 압축을 풀고 수동으로 옮겨야 해 이 관례와 어긋났다).
   ```bash
   cd build-dist/Build/Products/Release
-  ditto -c -k --sequesterRsrc --keepParent UniFinder.app "UniFinder-<VERSION>-macOS.zip"
-  shasum -a 256 "UniFinder-<VERSION>-macOS.zip"
+  create-dmg \
+    --volname "UniFinder" \
+    --window-size 500 320 \
+    --icon-size 100 \
+    --icon "UniFinder.app" 120 150 \
+    --app-drop-link 380 150 \
+    "UniFinder-<VERSION>-macOS.dmg" \
+    UniFinder.app
+  shasum -a 256 "UniFinder-<VERSION>-macOS.dmg"
   ```
+  - `create-dmg`는 이미 있는 대상 dmg를 덮어쓰지 못하고 실패한다 — 재시도 전에 `rm -f "UniFinder-<VERSION>-macOS.dmg"`로 지운다.
+  - 코드 41(`hdiutil: create failed - Resource busy` 계열)이 뜨면 이전 실행이 남긴 마운트가 있다는 뜻이다. `hdiutil info`로 확인 후 `hdiutil detach`로 정리하고 재시도.
+  - 아이콘 좌표(120,150 / 380,150)는 500×320 창 기준이다. 결과물을 실제로 마운트해 아이콘이 창 밖으로 나가거나 겹치지 않는지 **한 번 눈으로 확인**한다.
 - 빌드 산출물 디렉터리(`build-dist/`)는 릴리스 완료 후 정리한다(`rm -rf`) — 저장소에 커밋하지 않는다.
 
 ### 4단계 — 커밋 + 태그
@@ -77,7 +87,7 @@ xcodebuild -scheme UniFinder -configuration Release \
 
 ### 5단계 — GitHub Release 게시
 
-`gh release create v<VERSION> --title "v<VERSION>" --notes "..." <zip경로>`
+`gh release create v<VERSION> --title "v<VERSION>" --notes "..." <dmg경로>`
 
 **릴리스 이름(title)은 버전만 표기한다** — "UniFinder v0.3.0"처럼 앱 이름을 붙이지 않고 "v0.3.0"만 쓴다.
 
@@ -86,7 +96,7 @@ xcodebuild -scheme UniFinder -configuration Release \
 **릴리스 노트에 반드시 포함할 것 (매번, 예외 없이):**
 
 1. **버전별 변경 요약** — `git log --oneline <last-tag>..HEAD`와 실제 코드를 근거로 삼되, **커밋 메시지를 그대로 옮기지 않는다.** 커밋은 개발자에게 쓴 글이고 릴리스 노트는 사용자에게 쓰는 글이다. 각 항목을 "이 버전에서 무엇이 달라지는가"로 다시 쓴다(변환 방법은 "독자 기준" 참조).
-2. **설치 방법 — zip 다운로드** (소스 빌드 옵션은 안내하지 않는다, 2026-08-19 결정): **아래 quarantine 안내를 그대로 포함**.
+2. **설치 방법 — DMG 다운로드** (소스 빌드 옵션은 안내하지 않는다, 2026-08-19 결정 · 컨테이너는 zip에서 DMG로 2026-08-20 전환): 내려받은 `.dmg`를 더블클릭해 열고, 뜨는 창에서 UniFinder 아이콘을 Applications 폴더로 드래그한다. **아래 quarantine 안내를 그대로 포함**.
 3. **quarantine/Gatekeeper 안내 — 고정 문구** (검증된 표현을 그대로 쓴다. "우클릭 → 열기"는 절대 쓰지 않는다 — 최신 macOS에서 그 경로 자체가 없다):
    ```
    처음 실행 시 "Apple이 확인할 수 없음" 경고가 뜬다 — ad-hoc 서명·미공증 앱을 브라우저로
@@ -96,7 +106,7 @@ xcodebuild -scheme UniFinder -configuration Release \
        xattr -dr com.apple.quarantine /Applications/UniFinder.app
    ```
 4. **서명 상태 안내** — 사용자가 경고를 만나는 이유를 알 수 있게 한 줄로 쓴다(ad-hoc이면 "정식 서명·공증을 하지 않았다"). 내부 스펙 문서(`m3-impl §6`) 링크는 릴리스 노트에 넣지 않는다 — 개발자용이다.
-5. zip 첨부와 **SHA256 체크섬**. GitHub이 자동 생성하는 sha256(`--generate-notes` 등)에 의존하지 말고, 3단계에서 직접 계산한 값을 쓴다. 체크섬은 받은 파일이 온전한지 확인하는 용도라 사용자에게도 의미가 있다.
+5. dmg 첨부와 **SHA256 체크섬**. GitHub이 자동 생성하는 sha256(`--generate-notes` 등)에 의존하지 말고, 3단계에서 직접 계산한 값을 쓴다. 체크섬은 받은 파일이 온전한지 확인하는 용도라 사용자에게도 의미가 있다.
 
 **릴리스 노트에 넣지 않는 것**: 테스트 통과 수치, 빌드 경고 수, 리팩토링·내부 구조 변경, 버그의 내부 원인 설명, 코드 파일·클래스 이름, 내부 스펙 문서 링크. 2단계에서 실측한 테스트 수치는 **사용자에게 보고할 때만** 쓰고(6단계) 릴리스 노트에는 넣지 않는다.
 
@@ -133,7 +143,7 @@ release는 기본적으로 정식 공개 릴리스로 만든다(`--draft`/`--pre
 - ✅ "두 창에서 같은 폴더로 동시에 복사하면 확인 창이 창마다 각각 뜹니다"
 - ❌ "파일 조작 직렬화 범위가 앱 전역에서 창 단위로 축소됐습니다"
 
-릴리스 노트의 설치 방법은 zip 다운로드 + quarantine 안내 하나로 고정한다(2026-08-19 결정) — 소스 빌드(`git clone` + `install-local.sh`) 옵션은 릴리스 노트에 넣지 않는다.
+릴리스 노트의 설치 방법은 DMG 다운로드 + quarantine 안내 하나로 고정한다(배포 방식은 2026-08-19 결정, 컨테이너 포맷은 2026-08-20에 zip에서 DMG로 전환) — 소스 빌드(`git clone` + `install-local.sh`) 옵션은 릴리스 노트에 넣지 않는다.
 
 ### README의 경우
 
@@ -145,5 +155,5 @@ README는 GitHub 첫 화면이라 개발자도 보지만, **위에서부터 사�
 - **quarantine 안내는 협상 불가 항목**이다. GitHub Release로 배포하는 한, 정식 서명·공증이 완료되기 전까지는 반드시 릴리스 노트에 포함한다. Developer ID 서명 + 공증이 완료된 이후에는(quarantine이 있어도 공증 티켓이 있으면 정상 실행됨) 이 절이 필요 없어지므로, 그 전환 시점에 이 스킬을 갱신해야 한다는 것을 사용자에게 알린다.
 - **"우클릭 → 열기"를 쓰지 않는다.** 검증된 유일한 우회는 `xattr -dr com.apple.quarantine`이다. 다른 방법(시스템 설정의 "그래도 열기" 버튼 등)을 안내하려면 실제로 그 macOS 버전에서 동작을 확인한 뒤에만 추가한다.
 - **`project.yml`의 Release 서명 설정을 건드리지 않는다.** ad-hoc 오버라이드는 항상 빌드 커맨드 인자로만 준다.
-- 빌드 산출물(`build-dist/`, `dist/*.zip`)을 저장소에 커밋하지 않는다.
+- 빌드 산출물(`build-dist/`, `dist/*.dmg`)을 저장소에 커밋하지 않는다.
 - **릴리스 노트와 README는 사용자용, 커밋 메시지와 스펙 문서는 개발자용.** 두 글은 독자가 다르므로 내용을 서로 옮기지 않는다 — 커밋 메시지에 쓴 구현 근거를 릴리스 노트에 복사하지 말고, 릴리스 노트에 쓸 사용자 관점 설명을 위해 커밋 메시지의 기술적 근거를 희석하지도 않는다. 상세 기준은 "독자 기준" 절 참조.
