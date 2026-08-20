@@ -140,6 +140,11 @@ struct FileListBridge: NSViewRepresentable {
     /// 빈 영역 메뉴에는 넣지 않는다(사용자 결정: 대상이 모호해진다).
     var onOpenInNewWindow: (URL) -> Void = { _ in }
 
+    /// Eject — `/Volumes`를 열었을 때 그 안의 마운트 포인트가 대상이다.
+    /// 판정은 사이드바와 **같은 모델 함수**를 본다(`AppModel.canEject`).
+    var canEject: (URL) -> Bool = { _ in false }
+    var onEject: (URL) -> Void = { _ in }
+
     // 후속 T4·T5 — Open With / Get Info (UI설계 §6 개정판)
 
     /// Open With 서브메뉴의 후보 조회원. 주입 가능하게 두어 테스트가 LaunchServices에 묶이지 않는다.
@@ -393,6 +398,10 @@ struct FileListBridge: NSViewRepresentable {
         /// 지연 구성할 Open With 서브메뉴 (D5). 우클릭 때마다 LaunchServices를 조회하면
         /// 메뉴가 뜨는 시간이 앱 목록 조회 시간만큼 밀리므로, **열릴 때** 채운다.
         private(set) weak var openWithSubmenu: NSMenu?
+
+        /// 우클릭한 항목이 꺼낼 수 있는 볼륨일 때의 대상 스냅샷 (`newWindowTarget`과 같은 이유:
+        /// 메뉴가 떠 있는 사이 선택이 바뀌어도 실행 대상이 흔들리지 않게 한다).
+        private(set) var ejectTarget: URL?
 
         var appliedRevision: Int = -1
         /// 마지막으로 반영한 외부 변경 카운터 (m3-impl T0/B5).
@@ -1038,6 +1047,7 @@ struct FileListBridge: NSViewRepresentable {
             openWithTargets = []
             infoTarget = nil
             openWithSubmenu = nil
+            ejectTarget = nil
 
             if row >= 0, row < items.count {
                 buildItemMenu(menu, clicked: items[row])
@@ -1062,6 +1072,17 @@ struct FileListBridge: NSViewRepresentable {
                 modifiers: [],
                 enabled: clicked.isDirectory
             ))
+
+            // Eject — 마운트된 볼륨(디스크 이미지·외장 디스크)의 마운트 포인트를 우클릭했을 때만
+            // 넣는다. 사이드바와 같은 정책이다(대상이 아니면 항목 자체가 없다) — 일반 폴더·파일
+            // 우클릭에 죽은 Eject를 상시로 두지 않기 위함이다.
+            // 다중 선택에서는 넣지 않는다: 여러 볼륨을 한 번에 꺼내는 것은 실패가 섞였을 때
+            // 무엇이 남았는지 알려줄 방법이 없다(`Rename`·`Get Info`와 같은 단일 선택 규칙).
+            if selectionCount <= 1, clicked.isDirectory, parent.canEject(clicked.url) {
+                ejectTarget = clicked.url
+                menu.addItem(.separator())
+                menu.addItem(makeItem("Eject", #selector(menuEject), key: "", modifiers: []))
+            }
 
             // 후속 T4 — Open With. **파일에만** 의미가 있다: 폴더를 "다른 앱으로 여는" 동작은
             // 이 앱의 범위가 아니고, 다중 선택에 폴더가 섞이면 무엇을 어디로 보낼지가 정의되지 않는다.
@@ -1239,6 +1260,11 @@ struct FileListBridge: NSViewRepresentable {
         }
 
         @objc private func menuOpen() { openSelection() }
+        @objc private func menuEject() {
+            guard let target = ejectTarget else { return }
+            parent.onEject(target)
+        }
+
         @objc private func menuCopy() { parent.onCopy() }
         @objc private func menuCut() { parent.onCut() }
         @objc private func menuPaste() { parent.onPaste() }

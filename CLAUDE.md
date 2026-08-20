@@ -25,12 +25,13 @@
 | 기술 스택 | macOS 14+, Swift 5.10+, SwiftUI + AppKit 하이브리드 |
 | 빌드 방법 | `xcodegen generate && xcodebuild -scheme UniFinder build` |
 | 테스트 | `xcodebuild -scheme UniFinder test` |
-| 상태 | MVP(M1·M2·M3) + 다중 창 + 후속 4종(업데이트 확인·Open With·디스크 용량·Get Info) 완료 — 693 unit + 1 UI 테스트 통과 |
+| 상태 | MVP(M1·M2·M3) + 다중 창 + 후속 4종(업데이트 확인·Open With·디스크 용량·Get Info) + 볼륨 Eject·상태바 여유 공간 완료 — 784 unit + 1 UI 테스트 통과 |
 | 미완 | Developer ID 인증서 부재로 **릴리스 서명·공증 미수행** (절차는 m3-impl §6) |
 
 - 설계서: `ref-docs/specs/design/unifinder-mvp-design.md` (approved) · `unifinder-ui-design.md`
 - 구현계획: `ref-docs/specs/impl/unifinder-m{1,2,3}-impl.md` (M3 §5 = 후속 과제, §6 = 릴리스 절차)
 - 다중 창: `ref-docs/specs/impl/unifinder-multiwindow-impl.md` — 창별 `AppModel` vs 전역 `AppEnvironment`, §4 수용된 트레이드오프(조작 직렬화가 **창 단위**로 축소됨 등)
+- 볼륨 Eject·상태바 여유 공간: `ref-docs/specs/impl/unifinder-eject-diskspace-impl.md` — D-E1~D-E6 판정표, §4 수용된 트레이드오프(`.allPartitionsAndEjectDisk`가 같은 디스크의 다른 파티션까지 내림 등)
 - 후속 4종: `ref-docs/specs/impl/unifinder-followup-impl.md` — D1~D10 판정표, §1.2 B9 승계(⌘I만 Get Info로 이관), §4 수용된 트레이드오프(다중 선택 Get Info 비활성 등)
 - 로컬 설치: `INSTALL.md` (ad-hoc 서명 빌드 → /Applications)
 - 네트워크는 **업데이트 확인 1건만 예외**(설계서 §1.2 — 읽기전용 GET·메타데이터만·인증 없음·끌 수 있음).
@@ -60,4 +61,4 @@
 
 ---
 
-*최종 업데이트: 2026-08-18*
+*최종 업데이트: 2026-08-20*

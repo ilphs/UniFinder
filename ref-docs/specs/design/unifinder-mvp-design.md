@@ -2,11 +2,11 @@
 id: unifinder-mvp-design
 title: UniFinder MVP 설계초안 — Win10 탐색기 스타일 2-Pane 파일 탐색기
 type: design
-version: 1.1.0
+version: 1.1.1
 status: approved
 scope: macOS용 2-pane 파일 탐색기의 MVP 범위·화면 구성·아키텍처·기술 결정
-related: [unifinder-ui-design, unifinder-followup-impl]
-updated: 2026-08-19
+related: [unifinder-ui-design, unifinder-followup-impl, unifinder-eject-diskspace-impl]
+updated: 2026-08-20
 ---
 
 # UniFinder MVP 설계초안

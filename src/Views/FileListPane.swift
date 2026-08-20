@@ -51,6 +51,9 @@ struct FileListPane: View {
                 onOpenInNewWindow: { url in
                     openWindow(id: UniFinderApp.mainWindowID, value: WindowSeed(folderURL: url))
                 },
+                // Eject — 사이드바와 같은 판정·같은 실행 경로를 쓴다.
+                canEject: { model.canEject($0) },
+                onEject: { model.eject($0) },
                 // 후속 T4 — Open With. 후보 조회원은 모델이 소유하는 인스턴스를 그대로 넘긴다
                 // (Get Info 창의 "Open with:" 팝업과 **같은 서비스**를 써야 목록이 어긋나지 않는다).
                 openWithService: model.openWithService,
@@ -168,7 +171,9 @@ struct SidebarPane: View {
             onToggleFavorite: { model.toggleFavorite($0) },
             onOpenInNewWindow: { url in
                 openWindow(id: UniFinderApp.mainWindowID, value: WindowSeed(folderURL: url))
-            }
+            },
+            canEject: { model.canEject($0) },
+            onEject: { model.eject($0) }
         )
         .frame(minWidth: 180, maxWidth: 400)
         .background(Color(nsColor: .windowBackgroundColor))

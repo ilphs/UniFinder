@@ -71,6 +71,11 @@ struct SidebarTreeBridge: NSViewRepresentable {
     /// "Open in New Window" (다중 창 T7). 트리 노드는 전부 폴더라 대상 판정이 필요 없다.
     var onOpenInNewWindow: (URL) -> Void = { _ in }
 
+    /// Eject — 마운트된 디스크 이미지·외장 볼륨만 대상이다. 판정은 모델이 소유한다
+    /// (`AppModel.canEject` → `TreeModel.isEjectableVolume`).
+    var canEject: (URL) -> Bool = { _ in false }
+    var onEject: (URL) -> Void = { _ in }
+
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
@@ -565,6 +570,15 @@ struct SidebarTreeBridge: NSViewRepresentable {
             // 다중 창 T7 — Finder/Win10 탐색기와 같은 자리(Open 바로 아래).
             // 대상은 `contextNode` 스냅샷이라 메뉴가 떠 있는 사이 선택이 바뀌어도 흔들리지 않는다.
             menu.addItem(makeItem("Open in New Window", #selector(menuOpenInNewWindow), key: "", modifiers: []))
+
+            // Eject — **대상일 때만 항목을 넣는다**(비활성으로 두지 않는다).
+            // 이 메뉴의 다른 항목들은 "선택에 따라 비활성"이 자연스럽지만, 트리의 대다수 노드는
+            // 일반 폴더라 항상 넣으면 죽은 Eject가 상시로 보인다. Finder도 볼륨에서만 보여준다.
+            if parent.canEject(node.url) {
+                menu.addItem(.separator())
+                menu.addItem(makeItem("Eject", #selector(menuEject), key: "", modifiers: []))
+            }
+
             menu.addItem(.separator())
             menu.addItem(makeItem("Copy", #selector(menuCopy), key: "c", modifiers: .command))
             menu.addItem(makeItem("Paste", #selector(menuPaste), key: "v", modifiers: .command, enabled: parent.canPaste))
@@ -610,6 +624,11 @@ struct SidebarTreeBridge: NSViewRepresentable {
         @objc private func menuOpenInNewWindow() {
             guard let node = contextNode else { return }
             parent.onOpenInNewWindow(node.url)
+        }
+
+        @objc private func menuEject() {
+            guard let node = contextNode else { return }
+            parent.onEject(node.url)
         }
 
         @objc private func menuCopy() {

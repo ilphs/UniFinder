@@ -64,6 +64,22 @@ final class AppModel {
     /// FDA 온보딩 상태 (M3 T5). 감지·시트·배너는 전부 이 모델이 소유한다.
     let fullDiskAccess: FullDiskAccessModel
 
+    /// 상태바 우측의 여유 공간 표시 (UI설계 §5). **창별**이다 — 창마다 보고 있는 볼륨이 다르다.
+    let volumeCapacity: VolumeCapacityModel
+
+    /// 볼륨 언마운트 실행부. 주입 가능하게 두어 테스트가 실제 볼륨을 건드리지 않게 한다
+    /// (`applicationChooser` 선례).
+    @ObservationIgnored
+    var volumeUnmounter: VolumeService.Unmounter = VolumeService.defaultUnmounter
+
+    /// 진행 중인 Eject 요청의 경로 키 — **연타 가드**다.
+    ///
+    /// 언마운트는 볼륨이 사용 중이면 OS 대화상자를 띄우며 수 초를 끌 수 있다. 그동안 항목은
+    /// 그대로 활성이라(메뉴 활성 상태는 뷰 갱신 시점 스냅샷이다) 사용자가 다시 누르면 같은
+    /// 볼륨에 요청이 두 번 나가고 대화상자가 겹친다.
+    @ObservationIgnored
+    private var pendingEjectKeys: Set<String> = []
+
     /// 파일 조작 서비스 (M2 T0). 프로토콜로 주입받아 테스트가 실 파일시스템에 묶이지 않게 한다.
     @ObservationIgnored
     let operations: any FileOperating
@@ -197,6 +213,10 @@ final class AppModel {
         fullDiskAccess: FullDiskAccessModel? = nil,
         directoryWatcher: DirectoryWatcher? = nil,
         operationProgress: OperationProgressModel? = nil,
+        // 볼륨 열거기 — `TreeModel`로 그대로 넘어간다. 테스트가 가짜 볼륨 목록을 주입해
+        // Eject 적격 판정을 실제 마운트 상태에서 떼어내기 위한 지점이다.
+        volumeService: VolumeService = VolumeService(),
+        volumeCapacity: VolumeCapacityModel? = nil,
         startURL: URL? = nil
     ) {
         // 환경이 없으면 **이 인스턴스 전용** 환경을 만든다(위 주석 — `.shared` 오염 금지).
@@ -222,7 +242,13 @@ final class AppModel {
             sortDescriptor: settings.sortDescriptor,
             showHidden: settings.showHidden
         )
-        self.tree = TreeModel(loader: loader, showHidden: settings.showHidden, settings: settings)
+        self.tree = TreeModel(
+            loader: loader,
+            showHidden: settings.showHidden,
+            settings: settings,
+            volumeService: volumeService
+        )
+        self.volumeCapacity = volumeCapacity ?? VolumeCapacityModel()
         // `TreeModel`이 이미 이 목록으로 섹션을 만든 상태다 — 첫 `.onChange`가 헛돌지 않게 맞춰 둔다.
         self.appliedFavoritePaths = settings.favoritePaths
 
@@ -345,6 +371,8 @@ final class AppModel {
         tree.rebuildSections()
         directory.reload()
         startReveal(navigation.currentURL)
+        // ⌘R은 "지금 값을 다시 보여달라"는 요청이므로 스로틀을 통과시킨다.
+        volumeCapacity.update(for: navigation.currentURL, reason: .explicit)
     }
 
     private func loadCurrent(source: NavigationSource) {
@@ -352,6 +380,8 @@ final class AppModel {
         directory.load(url: url)
         syncWatcher()
         startReveal(url)
+        // 상태바 용량 (UI설계 §5). 같은 볼륨 안의 이동은 `VolumeCapacityModel`이 스로틀한다.
+        volumeCapacity.update(for: url, reason: .navigation)
         if shouldMoveFocusToList(for: source) {
             focusBroker.focusListSoon()
         }
@@ -472,6 +502,59 @@ final class AppModel {
         var isDirectory: ObjCBool = false
         let exists = FileManager.default.fileExists(atPath: current.path, isDirectory: &isDirectory)
         return !(exists && isDirectory.boolValue)
+    }
+
+    /// 이 경로에 `Eject`를 제안해도 되는지 — 사이드바와 목록이 **같은 이 함수**를 본다.
+    ///
+    /// 판정 근거는 `TreeModel`이 볼륨 열거 시점에 캐시한 값이다(우클릭 시점에 디스크를 다시
+    /// 두드리지 않는다 — `VolumeService.resourceKeys` 주석). 부팅 볼륨은 여기 들어오지 않는다.
+    func canEject(_ url: URL) -> Bool {
+        tree.isEjectableVolume(url)
+    }
+
+    /// 마운트된 볼륨(디스크 이미지·외장 디스크)을 꺼낸다.
+    ///
+    /// **성공 시 이 함수는 아무것도 하지 않는다**: 볼륨이 빠지면 `NSWorkspace.didUnmountNotification`
+    /// → `TreeModel.rebuildSections()` → `handleVolumeUnmounted`가 트리 갱신과 "그 볼륨 안에
+    /// 있었으면 홈으로 이동"까지 이미 처리한다(m3-impl T1). 여기서 같은 일을 또 하면 두 경로가
+    /// 어긋나는 순간 이동이 두 번 일어난다.
+    ///
+    /// 실패는 **모달이 아니라 상태바 문구**로 알린다(UI설계 §9 — 표시 중 폴더 소실과 같은 원칙).
+    /// "무엇이 붙잡고 있는가"는 OS가 자체 대화상자로 안내하므로 우리가 다시 묻지 않는다.
+    func eject(_ url: URL) {
+        guard canEject(url) else { return }
+        let key = PathKey.key(url)
+        // 연타 가드 — 언마운트는 수 초를 끌 수 있고 그동안 메뉴 항목은 활성으로 남는다.
+        guard !pendingEjectKeys.contains(key) else { return }
+        pendingEjectKeys.insert(key)
+
+        let name = tree.node(for: url)?.name ?? url.lastPathComponent
+        let unmounter = volumeUnmounter
+        Task { @MainActor [weak self] in
+            let error = await unmounter(url)
+            guard let self else { return }
+            self.pendingEjectKeys.remove(key)
+            if error != nil {
+                self.showMessage(Self.ejectFailureMessage(volumeName: name))
+            }
+        }
+    }
+
+    /// 이 볼륨에 Eject 요청이 이미 나가 있는지 (연타 가드의 관측 지점).
+    ///
+    /// 가드가 **일시적**이라는 것이 계약이다 — 요청이 끝나면 풀려서 재시도가 가능해야 한다.
+    /// 영구히 남으면 "한 번 실패한 볼륨은 다시 꺼낼 수 없다"가 된다.
+    func isEjectInFlight(_ url: URL) -> Bool {
+        pendingEjectKeys.contains(PathKey.key(url))
+    }
+
+    /// 실패 문구 — 뷰 없이 단언할 수 있도록 순수 함수로 분리한다(`openWithFailureMessage` 선례).
+    ///
+    /// 오류 문구를 그대로 이어붙이지 않고 **한 문장으로 요약**한다: `unmountVolume`의
+    /// `localizedDescription`은 "The volume ... couldn't be unmounted because ..." 형태로 이미
+    /// 길고, 상태바는 한 줄이라 뒤가 잘려 원인만 사라진다.
+    nonisolated static func ejectFailureMessage(volumeName: String) -> String {
+        "Couldn't eject \"\(volumeName)\" — it may still be in use."
     }
 
     // MARK: - 열기
@@ -1185,6 +1268,9 @@ final class AppModel {
             let result = await self.withProgress(kind: kind, body)
             self.operationTask = nil
             self.isOperationInProgress = false
+            // 복사/이동/삭제가 끝난 직후는 사용자가 여유 공간의 변화를 기대하는 시점이다.
+            // 조작은 창 단위로 1건씩 직렬화되므로(위 가드) 이 갱신이 몰아치지 않는다.
+            self.volumeCapacity.update(for: self.navigation.currentURL, reason: .explicit)
             completion(result)
         }
     }

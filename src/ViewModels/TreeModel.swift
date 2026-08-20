@@ -162,6 +162,14 @@ final class TreeModel {
     /// 마운트/언마운트 통지가 전부 `rebuildSections()`를 경유하므로 목록과 항상 같은 시점의 값이다.
     private var volumeRootKeys: Set<String> = []
 
+    /// 그중 **꺼낼 수 있는** 볼륨의 인덱스 키 (Eject 항목의 유일한 근거).
+    ///
+    /// `volumeRootKeys`와 같은 시점(`rebuildSections()`)에 확정한다 — 우클릭 시점에 볼륨 속성을
+    /// 다시 조회하면 응답 없는 마운트가 하나 끼는 순간 컨텍스트 메뉴가 멈춘다(`VolumeService`
+    /// `resourceKeys` 주석). 마운트/언마운트/볼륨 rename 통지가 전부 `rebuildSections()`를
+    /// 경유하므로 이 캐시는 목록과 항상 같은 시점의 값이다.
+    private var ejectableVolumeKeys: Set<String> = []
+
     /// 진행 중인 확장 작업(노드 1개당 최대 1개). 같은 노드에 대한 중복 확장을 막는다.
     ///
     /// 이 방어가 없으면 연속 이동으로 `reveal`이 중첩됐을 때 같은 노드에서 `expand`가 두 번
@@ -265,11 +273,14 @@ final class TreeModel {
             parent: nil,
             sectionKind: .volumes
         )
-        let volumeURLs = localVolumeURLs()
+        // 속성까지 함께 받는다 — Eject 적격 판정을 여기서 확정하기 위함이다(추가 조회 없음).
+        let volumes = localVolumes()
+        let volumeURLs = volumes.map(\.url)
         // 위험 대상 가드가 쓸 근거를 여기서 확정한다 — 볼륨 목록을 아는 자리가 여기뿐이다.
         // `/`는 목록 조회가 실패해도 항상 보호 대상이라 무조건 넣는다(기존 판정과 동일).
         volumeRootKeys = Set(volumeURLs.map(Self.indexKey))
         volumeRootKeys.insert(Self.indexKey(URL(fileURLWithPath: "/", isDirectory: true)))
+        ejectableVolumeKeys = Set(volumes.filter(\.isEjectable).map { Self.indexKey($0.url) })
         volumesSection.children = volumeURLs.map { url in
             makeOrReuseFolderNode(url: url, name: displayName(for: url), parent: volumesSection, previousIndex: previousIndex)
         }
@@ -339,8 +350,8 @@ final class TreeModel {
     /// 열거·필터 규칙을 여기에 다시 적으면 디스크 용량 창(T8)과 사이드바가 서로 다른 볼륨을
     /// 보여주게 된다. `FileManager`의 볼륨 열거 API를 직접 부르는 곳은
     /// **`VolumeService` 하나뿐**이어야 한다(`VolumeServiceTests`가 소스 전체를 훑어 감시한다).
-    private func localVolumeURLs() -> [URL] {
-        volumeService.localVolumeURLs()
+    private func localVolumes() -> [VolumeService.LocalVolume] {
+        volumeService.localVolumes()
     }
 
     private func displayName(for url: URL) -> String {
@@ -387,6 +398,15 @@ final class TreeModel {
         if key == Self.indexKey(homeURL) { return true }
         if volumeRootKeys.contains(key) { return true }
         return settings.isFavorite(url)
+    }
+
+    /// 이 경로가 **꺼낼 수 있는 볼륨의 루트**인지 (Eject 메뉴 항목의 유일한 근거).
+    ///
+    /// 사이드바 트리와 우측 목록(`/Volumes`를 열었을 때)이 **같은 이 함수**를 본다 —
+    /// 두 곳이 각자 판정하면 "사이드바에서는 꺼낼 수 있는데 목록에서는 항목이 없다"가 된다.
+    /// 부팅 볼륨은 여기 들어오지 않는다(`VolumeService.isEjectable` 참조).
+    func isEjectableVolume(_ url: URL) -> Bool {
+        ejectableVolumeKeys.contains(Self.indexKey(url))
     }
 
     // MARK: - 무효화 (m2-impl T1 / architect B8)

@@ -2,11 +2,11 @@
 id: unifinder-followup-impl
 title: UniFinder 후속 기능 구현계획서 — 업데이트 확인 · Open With · 디스크 용량 · Get Info
 type: impl
-version: 1.0.0
+version: 1.0.1
 status: implemented
 scope: MVP·다중 창 이후의 신규 기능 4종과 그에 수반되는 버전 소스 단일화·볼륨 서비스 추출
-related: [unifinder-mvp-design, unifinder-ui-design, unifinder-m2-impl, unifinder-multiwindow-impl]
-updated: 2026-08-19
+related: [unifinder-mvp-design, unifinder-ui-design, unifinder-m2-impl, unifinder-multiwindow-impl, unifinder-eject-diskspace-impl]
+updated: 2026-08-20
 ---
 
 # UniFinder 후속 기능 구현계획서
@@ -53,7 +53,7 @@ M2의 `architect B9`는 "Finder 정보창을 여는 공개 API가 없다 → `Sh
 | D6 | 폴더 크기 계산 | 논리 크기(`.fileSizeKey`)만. 하드링크 중복 계산 허용(의도된 근사). 심볼릭 링크 미추적. 500ms throttle 점진 갱신. `Task.cancel()`로 실제 중단. 접근 불가 하위는 건너뛰고 `(some items couldn't be read)` 표기 |
 | D7 | 정보 창의 씬 형태 | `WindowGroup(id: "info", for: InfoTarget.self)`. `InfoTarget`은 **URL 기반 값**(UUID 없음) — 같은 대상이면 창이 재사용된다 |
 | D8 | 메뉴 위치 | `Check for Updates…`는 이미 비어 있던 `CommandGroup(replacing: .help) { }`를 채운다. `.appInfo` 그룹은 건드리지 않는다(`Quit` 유실 리스크) |
-| D9 | 용량 창 갱신 | 마운트/언마운트 통지 **미구독**. 창을 열 때 1회 + 수동 `[Refresh]`(⌘R) + `Updated HH:mm` 표기 |
+| D9 | 용량 창 갱신 | 마운트/언마운트 통지 **미구독**. 창을 열 때 1회 + 수동 `[Refresh]`(⌘R) + `Updated HH:mm` 표기. **이 판정은 용량 창에만 적용된다** — 상태바 우측의 여유 공간 표시(2026-08-20)는 상시 표시라 명시적 예외를 두었다: `unifinder-eject-diskspace-impl` D-E4 |
 | D10 | 업데이트 설정 저장 | `AppSettings`와 분리한 `UpdatePreferences`(`@MainActor @Observable`, `UserDefaults` 주입). `AppEnvironment.update`로 노출. 키: `update.autoCheckEnabled`(기본 true) / `update.lastCheckedAt` / `update.skippedVersion` / `update.cachedETag` / `update.cachedLatestVersion`. **별도 suite를 만들지 않고** `.standard`에 `update.` 접두사만 |
 
 ## 3. 태스크

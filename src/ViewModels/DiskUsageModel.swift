@@ -59,12 +59,13 @@ final class DiskUsageModel {
 
     /// 용량 조회 주입점 — 테스트가 실제 디스크 상태에 묶이지 않게 한다
     /// (`FullDiskAccessModel.opener` 선례). `nil`을 돌려주면 "조회 실패"다.
-    typealias CapacityReader = @Sendable (_ url: URL) -> Capacity?
-
-    struct Capacity: Sendable, Equatable {
-        var total: Int64?
-        var available: Int64?
-    }
+    ///
+    /// **타입과 기본 구현은 `VolumeService`가 소유한다**: 상태바 우측의 용량 표시가 같은 값을
+    /// 쓰게 되면서, 조회 규칙(어느 키가 정본이고 무엇으로 폴백하는가)이 두 곳에 복제될
+    /// 상황이 됐다. 복제하면 "창과 상태바의 숫자가 다르다"가 곧바로 버그로 보고된다.
+    /// 여기서는 별칭만 유지한다(기존 호출부·테스트 표기를 그대로 두기 위함).
+    typealias CapacityReader = VolumeService.CapacityReader
+    typealias Capacity = VolumeService.Capacity
 
     @ObservationIgnored
     private let capacityReader: CapacityReader
@@ -139,21 +140,6 @@ final class DiskUsageModel {
             }
     }
 
-    /// D1 — 여유 공간은 `forImportantUsage`가 정본이고, 없으면 `volumeAvailableCapacity`로 폴백한다.
-    ///
-    /// 두 키의 의미가 다르다: 전자는 "정리 가능한 공간을 포함해 실제로 쓸 수 있는 양"이고
-    /// 후자는 "지금 당장 비어 있는 양"이다. Finder가 보여주는 값은 전자에 가깝다.
-    nonisolated static let defaultCapacityReader: CapacityReader = { url in
-        let keys: Set<URLResourceKey> = [
-            .volumeTotalCapacityKey,
-            .volumeAvailableCapacityKey,
-            .volumeAvailableCapacityForImportantUsageKey,
-        ]
-        guard let values = try? url.resourceValues(forKeys: keys) else { return nil }
-        // `forImportantUsage`는 이미 `Int64?`, 나머지는 `Int?`라 타입을 명시적으로 맞춘다.
-        let important: Int64? = values.volumeAvailableCapacityForImportantUsage
-        let fallback: Int64? = values.volumeAvailableCapacity.map { Int64($0) }
-        let total: Int64? = values.volumeTotalCapacity.map { Int64($0) }
-        return Capacity(total: total, available: important ?? fallback)
-    }
+    /// D1 규칙(여유 공간의 정본 키와 폴백)은 `VolumeService`가 소유한다 — 위 `Capacity` 주석 참조.
+    nonisolated static let defaultCapacityReader: CapacityReader = VolumeService.defaultCapacityReader
 }
