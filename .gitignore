@@ -12,6 +12,7 @@ xcuserdata/
 .DS_Store
 
 # Claude Code runtime
+.claude/
 .claude/db/context.db
 .claude/.ctx_state
 .claude/.backup-*
