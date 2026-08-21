@@ -22,6 +22,7 @@ xcuserdata/
 .claude/.hook_feedback
 .claude/.project_root
 .claude/.messenger_enabled
+.omx/
 
 # 로컬 설치 빌드 산출물
 build-release/
